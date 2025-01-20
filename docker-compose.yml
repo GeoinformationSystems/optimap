@@ -1,24 +1,31 @@
 version: "3.9"
-   
+
 services:
   db:
+    container_name: optimap_db
     image: postgis/postgis:14-3.3
-    #volumes:
-    #  - ./data/db:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=optimap
       - POSTGRES_USER=optimap
       - POSTGRES_PASSWORD=optimap
+    # Uncomment if you want to persist data on the host:
+    # volumes:
+    #   - ./data/db:/var/lib/postgresql/data
+    # Expose the database port so you can connect with external tools (e.g., DBeaver):
+    ports:
+      - "5432:5432"
+
   web:
+    container_name: optimap_web
     build: .
     environment:
       - DATABASE_URL=postgis://optimap:optimap@db:5432/optimap?sslmode=disable
-    # overwrite app code for development:
-    #volumes:
-    #  - .:/code
-    # mount test data 
-    #  - ./fixtures/:/fixtures
-    ports:
-      - "8000:8000"
+      # Uncomment or add other variables if needed (e.g., debug flags).
     depends_on:
       - db
+    ports:
+      - "8000:8000"
+    # Uncomment for development convenience (live code reloading, etc.):
+    # volumes:
+    #   - .:/code
+    #   - ./fixtures/:/fixtures

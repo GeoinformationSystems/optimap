@@ -3,11 +3,16 @@
 from django.urls import path, include
 from django.shortcuts import redirect
 from publications import views
-from .feeds import OptimapFeed
-from .feeds import atomFeed
+from publications.api import JournalViewSet  # Import the JournalViewSet
+from .feeds import OptimapFeed, atomFeed
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView
+from rest_framework.routers import DefaultRouter
 
 app_name = "optimap"
+
+# Define a router for DRF viewsets
+router = DefaultRouter()
+router.register(r'journals', JournalViewSet, basename='journal')  # Register the JournalViewSet
 
 urlpatterns = [
     path('', views.main, name="main"),
@@ -15,7 +20,8 @@ urlpatterns = [
     path("api", lambda request: redirect('/api/v1/', permanent=False), name="api"),
     path("api/", lambda request: redirect('/api/v1/', permanent=False)),
     path("api/v1", lambda request: redirect('/api/v1/', permanent=False)),
-    path("api/v1/", include("publications.api")),
+    path("api/v1/", include("publications.api")),  # Existing API endpoints
+    path("api/v1/", include(router.urls)),  # Include the router for journals API
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/schema/ui/sitemap', SpectacularRedocView.as_view(url_name='optimap:schema'), name='redoc'),
     path("data/", views.data, name="data"),
