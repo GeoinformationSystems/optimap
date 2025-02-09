@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+
 {% block head %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css" integrity="sha512-mSYUmp1HYZDFaVKK//63EcZq4iFWFjxSL+Z3T/aCt4IO9Cejm03q3NKKYN6pFQzY0SBOr8h+eCIAZHPXcpZaNw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
@@ -7,7 +8,6 @@
 {% endblock %}
 
 {% block navbar %}
-
 <ul class="nav navbar-nav">
   {% if request.user.is_authenticated %}  
   {% include "authenticated_menu_snippet.html" %}
@@ -15,7 +15,6 @@
   {% include "menu_snippet.html" %}
   {% endif %}
 </ul>
-
 {% endblock %}
 
 {% block content %}
@@ -32,35 +31,13 @@
     </div>
     <div id="collapseFour" class="collapse" aria-labelledby="headingFour" data-parent="#accordion">
       <div class="card-body">
-        <form id = "form1" class="form" method="POST" action="{% url 'optimap:addsubscriptions' %}">
+        <form id="subscription-form">
           {% csrf_token %}
           <div class="form-group">            
-            <input id = "search" type="text" class="form-control" placeholder="Enter Subscription name" aria-describedby="basic-addon1"  name="search">
-          </div>           
-          <div class =row>
-          <div class='col-md-5'>
-            <div class="form-group">
-              <div class="input-group date" id="datepicker1">
-                <input id = "start_date" placeholder="Select Start date" type="text" class="form-control" name="start_date">           
-                <div class="input-group-addon">
-                  <span class="glyphicon glyphicon-th"></span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class='col-md-5'>
-            <div class="form-group">
-              <div class="input-group date" id ="datepicker2">
-                <input id = "end_date" placeholder="Select End date" type="text" class="form-control" name="end_date">
-                <div class="input-group-addon">
-                  <span class="glyphicon glyphicon-th"></span>
-                </div>
-              </div>
-            </div>
-          </div>
+            <input id="subscription-name" type="text" class="form-control" placeholder="Enter Subscription name" required>
           </div>
           <div class="form-group row px-3">
-            <button id = "save_sub" type="submit" class="btn btn-outline-warning">Add</button>
+            <button id="save_sub" type="submit" class="btn btn-outline-warning">Add</button>
             <div class="col-sm-2">
               <button type="reset" class="btn btn-outline-danger">Cancel</button>
             </div>
@@ -70,10 +47,25 @@
     </div>
   </div>
 </div>
-<div id="accordion1"> <br><p><b> Your subscriptions <span class="badge badge-info">list</span> :</b></p></div>
+
+<!-- Subscription List -->
+<div id="subscription-list-container">
+  <br>
+  <p><b>Your Subscriptions <span class="badge badge-info">list</span> :</b></p>
+  <ul id="subscription-list" class="list-group">
+    {% for subscription in subscriptions %}
+    <li class="list-group-item d-flex justify-content-between align-items-center" data-sub-id="{{ subscription.id }}">
+      {{ subscription.name }}
+      <button onclick="deleteSubscription(this.getAttribute('data-sub-id'))" data-sub-id="{{ subscription.id }}" class="btn btn-sm btn-danger">Remove</button>
+    </li>
+    {% empty %}
+    <li class="list-group-item">No subscriptions found.</li>
+    {% endfor %}
+  </ul>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js" integrity="sha512-T/tUfKSV1bihCnd+MxKD0Hm1uBBroVYBOYSk1knyvQ9VyZJpc/ALb4P0r6ubwVPSGB2GvjeoMAJJImBG12TiaQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src = "{% static 'js/subscriptions.js' %}"></script>
+<script src="{% static 'js/subscriptions.js' %}"></script>
 {% endblock %}

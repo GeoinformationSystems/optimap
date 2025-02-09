@@ -49,6 +49,7 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     "sesame.backends.ModelBackend",
 ]
+LOGIN_URL = "/loginres/"  # Redirect users to email login
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -229,12 +230,16 @@ WSGI_APPLICATION = 'optimap.wsgi.application'
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
 # https://pypi.org/project/dj-database-url/
 DATABASES = {
-    'default': dj_database_url.config( # this uses DATABASE_URL environment variable
-        # value must be URL-encoded: postgres://user:p%23ssword!@localhost/foobar
-        default='postgis://optimap:optimap@localhost:5432/optimap',
-        conn_max_age=600
-        )
+    'default': {
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'NAME': 'optimap',  # Database name inside Docker
+        'USER': 'optimap',  # Database user
+        'PASSWORD': 'optimap',  # Database password
+        'HOST': '172.18.108.15',  # Use the WSL gateway IP, NOT localhost!
+        'PORT': '5432',  # Default PostgreSQL port
+    }
 }
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/4.0/topics/i18n/
@@ -251,9 +256,16 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.0/howto/static-files/
 # https://docs.djangoproject.com/en/4.1/ref/contrib/staticfiles/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 STATIC_ROOT = 'static/'
 STATIC_URL = '/static/'
-STATICFILES_DIRS = ['publications/static']
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),  # Add this to include static/
+    os.path.join(BASE_DIR, 'publications/static'),  # Keep this to include publications/static/
+]
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # This should be separate for collected files
 
 # serve static files with Django, not with a dedicated webserver: http://whitenoise.evans.io/en/stable/django.html
 STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
