@@ -35,3 +35,4 @@ whitenoise==6.8.2
 psycopg2-binary==2.9.10
 packaging==21.3
 pycryptodome==3.21.0
+httpretty==1.1.4
