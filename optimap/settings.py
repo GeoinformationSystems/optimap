@@ -183,6 +183,7 @@ EMAIL_HOST_PASSWORD = env('OPTIMAP_EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS =       env('OPTIMAP_EMAIL_USE_TLS', default=False)
 EMAIL_USE_SSL =       env('OPTIMAP_EMAIL_USE_SSL', default=False)
 EMAIL_IMAP_SENT_FOLDER = env('OPTIMAP_EMAIL_IMAP_SENT_FOLDER', default='')
+BASE_URL = env("BASE_URL", default="http://127.0.0.1:8000")
 
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',

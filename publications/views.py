@@ -22,6 +22,8 @@ import imaplib
 import time
 from math import floor
 from django_currentuser.middleware import (get_current_user, get_current_authenticated_user)
+from django.shortcuts import redirect, get_object_or_404
+from urllib.parse import unquote
 
 LOGIN_TOKEN_LENGTH  = 32
 LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
@@ -149,6 +151,34 @@ def add_subscriptions(request):
         logger.info('Adding new subscription for user %s: %s', user_name, subscription)
         subscription.save()
         return  HttpResponseRedirect('/subscriptions/')
+
+@login_required 
+def unsubscribe(request):
+    """Handles unsubscription requests from emails."""
+    user = request.user
+    search_term = request.GET.get("search")
+    unsubscribe_all = request.GET.get("all")
+
+    if unsubscribe_all:
+        Subscription.objects.filter(user=user).update(subscribed=False)
+        messages.success(request, "You have been unsubscribed from all subscriptions.")
+        return redirect("/") 
+    if search_term:
+
+        exact_search_term = unquote(search_term).strip() 
+        subscription = get_object_or_404(Subscription, user=user, search_term=exact_search_term)
+
+        if not subscription:
+            messages.warning(request, f"No subscription found for '{search_term}'.")
+            return redirect("/") 
+
+        subscription.subscribed = False
+        subscription.save()
+        messages.success(request, f"You have unsubscribed from '{search_term}'.")
+        return redirect("/") 
+
+    return HttpResponse("Invalid request.", status=400)
+
 
 def delete_account(request):
     email = request.user.email
