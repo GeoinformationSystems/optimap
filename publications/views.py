@@ -14,6 +14,7 @@ import secrets
 from django.contrib import messages
 from django.contrib.auth import login,logout
 from django.views.decorators.http import require_GET
+from publications.models import BlockedEmail, BlockedDomain
 from django.contrib.auth.models import User
 from django.conf import settings
 from publications.models import Subscription
@@ -32,6 +33,17 @@ def main(request):
 
 def loginres(request):
     email = request.POST.get('email', False)
+
+    if is_email_blocked(email):
+        logger.warning('Attempted login with blocked email: %s', email)
+        return render(request, "error.html", {
+            'error': {
+                'class': 'danger',
+                'title': 'Login failed!',
+                'text': 'The email address is blocked. Please contact support for assistance.'
+            }
+        })
+
     subject = 'OPTIMAP Login'
     link = get_login_link(request, email)
     valid = floor(LOGIN_TOKEN_TIMEOUT_SECONDS / 60)
@@ -164,6 +176,16 @@ def change_useremail(request):
     currentuser = request.user
     email_old = currentuser.email
     logger.info('User requests to change email from %s to %s', email_old, email_new)
+
+    if is_email_blocked(email):
+        logger.warning('Attempted login with blocked email: %s', email)
+        return render(request, "error.html", {
+            'error': {
+                'class': 'danger',
+                'title': 'Login failed!',
+                'text': 'The email address is blocked. Please contact support for assistance.'
+            }
+        })
     
     if email_new:
         currentuser.email = email_new
@@ -197,3 +219,11 @@ def get_login_link(request, email):
     cache.set(token, email, timeout = LOGIN_TOKEN_TIMEOUT_SECONDS)
     logger.info('Created login link for %s with token %s - %s', email, token, link)
     return link
+
+def is_email_blocked(email):
+    domain = email.split('@')[-1]
+    if BlockedEmail.objects.filter(email=email).exists():
+        return True
+    if BlockedDomain.objects.filter(domain=domain).exists():
+        return True
+    return False
