@@ -14,7 +14,6 @@ import secrets
 from django.contrib import messages
 from django.contrib.auth import login,logout
 from django.views.decorators.http import require_GET
-from django.contrib.auth.models import User
 from django.conf import settings
 from publications.models import Subscription
 from datetime import datetime
@@ -22,6 +21,13 @@ import imaplib
 import time
 from math import floor
 from django_currentuser.middleware import (get_current_user, get_current_authenticated_user)
+from django.urls import reverse
+import uuid
+from django.shortcuts import get_object_or_404
+from django.shortcuts import redirect
+from django.utils.timezone import now
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 LOGIN_TOKEN_LENGTH  = 32
 LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
@@ -106,7 +112,23 @@ def authenticate_via_magic_link(request: HttpRequest, token: str):
             }
         })
 
-    user, is_new = User.objects.get_or_create(username = email, email = email)
+    user = User.objects.filter(email=email).first()
+
+    if user:
+        if user.deleted:
+            # Create a new user if existing record is found
+            user.deleted = False
+            user.deleted_at = None
+            user.is_active = True  
+            user.save()
+            is_new = False  
+        else:
+            is_new = False  
+    else:
+        # Create a new user if no existing record is found
+        user = User.objects.create_user(username=email, email=email)
+        is_new = True
+
     login(request, user, backend='django.contrib.auth.backends.ModelBackend')
 
     cache.delete(token)
@@ -197,3 +219,72 @@ def get_login_link(request, email):
     cache.set(token, email, timeout = LOGIN_TOKEN_TIMEOUT_SECONDS)
     logger.info('Created login link for %s with token %s - %s', email, token, link)
     return link
+
+
+@login_required
+def request_delete(request):
+    user = request.user
+    token = uuid.uuid4().hex
+
+    cache.set(f"delete_token_{token}", user.id, timeout=3600)
+
+    confirm_url = request.build_absolute_uri(reverse('optimap:confirm_delete', args=[token]))
+
+    send_mail(  
+        'Confirm Your Account Deletion',
+        f'Click the link to confirm deletion: {confirm_url}',
+        'no-reply@optimap.com',
+        [user.email],
+    )
+
+    return redirect(reverse('optimap:usersettings') + '?message=Check your email for a confirmation link.')
+
+@login_required
+def confirm_account_deletion(request, token):
+    user_id = cache.get(f"delete_token_{token}")
+
+    if user_id is None:
+        messages.error(request, "Invalid or expired deletion token.")
+        return redirect(reverse('optimap:usersettings'))
+
+    user = get_object_or_404(User, id=user_id)
+
+    request.session["delete_token"] = token
+
+    messages.warning(request, "Please confirm your account deletion. Your contributed data will remain on the platform.")
+    return redirect(reverse('optimap:usersettings'))  
+
+
+@login_required
+def finalize_account_deletion(request):
+    token = request.session.get("delete_token")
+
+    if not token:
+        messages.error(request, "No active deletion request found.")
+        return redirect(reverse('optimap:usersettings'))
+
+    user_id = cache.get(f"delete_token_{token}")
+
+    if user_id is None:
+        messages.error(request, "Invalid or expired deletion request.")
+        return redirect(reverse('optimap:usersettings'))
+
+    user = get_object_or_404(User, id=user_id)
+
+    if user.deleted:
+        messages.warning(request, "This account has already been deleted.")
+        return redirect(reverse('optimap:usersettings'))
+
+    user.deleted = True
+    user.deleted_at = now()
+    user.save()
+    cache.delete(f"delete_token_{token}") 
+
+    if "delete_token" in request.session:
+        del request.session["delete_token"]
+        request.session.modified = True  
+
+    logout(request)
+
+    messages.success(request, "Your account has been successfully deleted.")
+    return redirect(reverse('optimap:main')) 

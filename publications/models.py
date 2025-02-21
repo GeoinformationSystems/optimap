@@ -1,6 +1,9 @@
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
 from django_currentuser.db.models import CurrentUserField
+from django.utils.timezone import now
+from django.contrib.auth.models import AbstractUser, Group, Permission
+import uuid
 
 STATUS_CHOICES = (
     ("d", "Draft"),
@@ -9,6 +12,25 @@ STATUS_CHOICES = (
     ("w", "Withdrawn"),
     ("h", "Harvested"),
 )
+
+class CustomUser(AbstractUser):
+    deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    groups = models.ManyToManyField(Group, related_name="publications_users", blank=True)
+    user_permissions = models.ManyToManyField(Permission, related_name="publications_users_permissions", blank=True)
+
+    def soft_delete(self):
+        """Marks the user as deleted instead of removing from the database."""
+        self.deleted = True
+        self.deleted_at = now()
+        self.save()
+    
+    def restore(self):
+        """Restores a previously deleted user."""
+        self.deleted = False
+        self.deleted_at = None
+        self.save()
 
 class Publication(models.Model):
     # required fields      
@@ -88,7 +110,8 @@ class Subscription(models.Model):
 from import_export import fields, resources
 from import_export.widgets import ForeignKeyWidget
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 class PublicationResource(resources.ModelResource):
     #created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='username')
     #updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='username')
