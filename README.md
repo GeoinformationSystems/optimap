@@ -111,24 +111,22 @@ Configuration for debugging with VS Code:
 
 ```json
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Python: Django Run",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "runserver"
-            ],
-            "env": {
-                "OPTIMAP_DEBUG": "True",
-                "OPTIMAP_CACHE": "dummy"
-            },
-            "django": true,
-            "justMyCode": true
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Django Run",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["runserver"],
+      "env": {
+        "OPTIMAP_DEBUG": "True",
+        "OPTIMAP_CACHE": "dummy"
+      },
+      "django": true,
+      "justMyCode": true
+    }
+  ]
 }
 ```
 
@@ -149,7 +147,7 @@ OPTIMAP_EMAIL_PORT=5587
 
 ### Create superusers/admin
 
-Superusers/admin can be created  using the createsuperuser command:
+Superusers/admin can be created using the createsuperuser command:
 
 ```bash
 python manage.py createsuperuser --username=optimap --email=nomail@optimap.science
@@ -161,6 +159,23 @@ After you enter one, the user will be created immediately. If you leave off the 
 You can acess the admin page at <http://127.0.0.1:8000/admin/>.
 
 You can also run the command in a containerised app with `docker-compose run web python manage.py ...`.
+
+## Block Emails/Domains
+
+### What It Does
+
+- Blocks specific emails and entire domains from registering.
+- Prevents login attempts from blocked users.
+- Admin can delete users and instantly block their email/domain.
+
+### How to Use in Django Admin
+
+1. **Manually Add Blocked Emails/Domains**
+   - Go to `/admin/`
+   - Add emails in **Blocked Emails** or domains in **Blocked Domains**.
+2. **Block Users via Admin Action**
+   - Go to `/admin/auth/user/`
+   - Select users → Choose **"Delete user and block email/domain"** → Click **Go**.
 
 ### Run tests
 
@@ -194,22 +209,17 @@ A configuration to debug the test code and also print deprecation warnings:
 
 ```json
 {
-    "name": "Python: Django Test",
-    "type": "python",
-    "request": "launch",
-    "pythonArgs": [
-        "-Wa"
-    ],
-    "program": "${workspaceFolder}/manage.py",
-    "args": [
-        "test",
-        "tests"
-    ],
-    "env": {
-        "OPTIMAP_DEBUG": "True"
-    },
-    "django": true,
-    "justMyCode": true
+  "name": "Python: Django Test",
+  "type": "python",
+  "request": "launch",
+  "pythonArgs": ["-Wa"],
+  "program": "${workspaceFolder}/manage.py",
+  "args": ["test", "tests"],
+  "env": {
+    "OPTIMAP_DEBUG": "True"
+  },
+  "django": true,
+  "justMyCode": true
 }
 ```
 
