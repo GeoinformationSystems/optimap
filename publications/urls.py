@@ -31,4 +31,5 @@ urlpatterns = [
     path("addsubscriptions/", views.add_subscriptions, name="addsubscriptions"),
     path("delete/", views.delete_account, name="delete"),
     path("changeuser/", views.change_useremail, name="changeuser"),
+    path("confirm-email/<str:token>/<str:email_new>/", views.confirm_email_change, name="confirm-email-change"),
 ]
