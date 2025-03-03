@@ -50,6 +50,8 @@ AUTHENTICATION_BACKENDS = [
     "sesame.backends.ModelBackend",
 ]
 
+AUTH_USER_MODEL = "publications.CustomUser" 
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

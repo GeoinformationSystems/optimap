@@ -1,95 +1,204 @@
-{% extends "base.html" %}
-{% load static %}
-
-{% block navbar %}
+{% extends "base.html" %} {% load static %} {% block navbar %}
 
 <ul class="nav navbar-nav">
-  {% if request.user.is_authenticated %}  
-  {% include "authenticated_menu_snippet.html" %}
-  {% else %}
-  {% include "menu_snippet.html" %}
-  {% endif %}
+  {% if request.user.is_authenticated %} {% include
+  "authenticated_menu_snippet.html" %} {% else %} {% include "menu_snippet.html"
+  %} {% endif %}
 </ul>
 
-{% endblock %}
+{% endblock %} {% block content %}
+<div class="row justify-content-center">
+  <div class="col-4 py-5">
+    <div class="accordion m-5" id="user_settings">
+      <div class="card">
+        <div class="card-header" id="headingOne">
+          <h2 class="mb-0">
+            <button
+              class="btn btn-link btn-block text-left"
+              type="button"
+              data-toggle="collapse"
+              data-target="#collapseOne"
+              aria-expanded="true"
+              aria-controls="collapseOne"
+            >
+              Change email
+            </button>
+          </h2>
+        </div>
 
-  {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-4 py-5">
-
-      <div class="accordion m-5" id="user_settings">
-        <div class="card">
-          <div class="card-header" id="headingOne">
-            <h2 class="mb-0">
-              <button class="btn btn-link btn-block text-left" type="button" data-toggle="collapse"
-                data-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
-                Change email
-              </button>
-            </h2>
+        <div
+          id="collapseOne"
+          class="collapse show"
+          aria-labelledby="headingOne"
+          data-parent="#user_settings"
+        >
+          <div class="card-body">
+            <form
+              class="formchange"
+              method="POST"
+              action="{% url 'optimap:changeuser' %}"
+            >
+              {% csrf_token %}
+              <div class="form-group row px-3">
+                <label for="staticEmail" class="col-form-label"
+                  >Current email</label
+                >
+                <div class="col">
+                  <input
+                    type="text"
+                    readonly
+                    class="form-control-plaintext"
+                    id="staticEmail"
+                    value="{{user.email}}"
+                  />
+                </div>
+              </div>
+              <div class="form-group row px-3">
+                <input
+                  id="email_new"
+                  placeholder="Enter your new email"
+                  class="form-control form-control-sm"
+                  type="email"
+                  required=""
+                  name="email_new"
+                />
+              </div>
+              <div class="form-group row px-3">
+                <button type="submit" class="btn btn-outline-warning">
+                  Save Changes
+                </button>
+                <div class="col-sm-2">
+                  <button type="reset" class="btn btn-outline-danger">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
+        </div>
+      </div>
 
-          <div id="collapseOne" class="collapse show" aria-labelledby="headingOne" data-parent="#user_settings">
-            <div class="card-body">
-              <form class="formchange" method="POST" action="{% url 'optimap:changeuser' %}">
-                {% csrf_token %}
-                <div class="form-group row px-3">
-                  <label for="staticEmail" class="col-form-label">Current email</label>
-                  <div class="col">
-                    <input type="text" readonly class="form-control-plaintext" id="staticEmail" value="{{user.email}}">
+      <div class="card">
+        <div class="card-header" id="headingTwo">
+          <h2 class="mb-0">
+            <button
+              class="btn btn-link btn-block text-left collapsed"
+              type="button"
+              data-toggle="collapse"
+              data-target="#collapseTwo"
+              aria-expanded="false"
+              aria-controls="collapseTwo"
+            >
+              Delete account
+            </button>
+          </h2>
+        </div>
+        <div
+          id="collapseTwo"
+          class="collapse"
+          aria-labelledby="headingTwo"
+          data-parent="#user_settings"
+        >
+          <div class="card-body">
+            <div class="container">
+              <p
+                class="text-danger font-weight-bold text-wrap text-center mb-3"
+              >
+                Deleting your account is permanent. It cannot be reversed.
+              </p>
+
+              <button
+                type="button"
+                class="btn btn-outline-danger mt-2 px-4 py-2 w-100"
+                data-toggle="modal"
+                data-target="#modal1"
+                aria-expanded="false"
+              >
+                Delete Account
+              </button>
+            </div>
+
+            <div id="modal1" class="modal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Delete Account</h5>
+                    <button
+                      type="button"
+                      class="close"
+                      data-dismiss="modal"
+                      aria-label="Close"
+                    >
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                  <div class="modal-body">
+                    <p>Do you really want to delete this account ?</p>
+                    <p>
+                      <strong>Note:</strong> Your contributed data will remain
+                      available on the platform.
+                    </p>
+                  </div>
+                  <div class="modal-footer">
+                    <form
+                      action="{% url 'optimap:request_delete' %}"
+                      method="post"
+                    >
+                      {% csrf_token %}
+                      <button
+                        type="submit"
+                        class="btn btn-primary"
+                        name="dltbutton"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                    <button
+                      type="button"
+                      class="btn btn-secondary"
+                      data-dismiss="modal"
+                    >
+                      Close
+                    </button>
                   </div>
                 </div>
-                <div class="form-group row px-3">
-                  <input id="email_new" placeholder="Enter your new email" class="form-control form-control-sm"
-                    type="email" required="" name="email_new">
-                </div>
-                <div class="form-group row px-3">
-                  <button type="submit" class="btn btn-outline-warning">Save Changes</button>
-                  <div class="col-sm-2">
-                    <button type="reset" class="btn btn-outline-danger">Cancel</button>
-                  </div>
-                </div>
-              </form>
+              </div>
             </div>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-header" id="headingTwo">
-            <h2 class="mb-0">
-              <button class="btn btn-link btn-block text-left collapsed" type="button" data-toggle="collapse"
-                data-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
-                Delete account
-              </button>
-            </h2>
-          </div>
-          <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#user_settings">
-            <div class="card-body">
-
-              <p>Deleting account is permenant. It cannot be reversed.</p>
-
-              <button type="button" class="btn btn-outline-danger" data-toggle="modal" data-target="#modal1"
-                aria-expanded="false">Delete Account</button>
-
-              <div id="modal1" class="modal" tabindex="-1" role="dialog">
-                <div class="modal-dialog" role="document">
-                  <div class="modal-content">
-                    <div class="modal-header">
-                      <h5 class="modal-title">Delete Account</h5>
-                      <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                      </button>
-                    </div>
-                    <div class="modal-body">
-                      <p>Do you really want to delete this account ?</p>
-                    </div>
-                    <div class="modal-footer">
-                      <form action="{% url 'optimap:delete' %}" method="post">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-primary" name='dltbutton'>Delete</button>
-                      </form>
-                      <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                    </div>
-                  </div>
+        <!-- Final Confirmation Modal (Only Shows After Clicking Email Link) -->
+        <div id="finalDeleteModal" class="modal fade" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Final Confirmation</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                  <span>&times;</span>
+                </button>
+              </div>
+              <div class="modal-body">
+                <div class="container">
+                  <p class="text-wrap text-center mb-3">
+                    Confirming this will permenantly delete your account.
+                  </p>
+                </div>
+                <div class="modal-footer">
+                  <form
+                    method="POST"
+                    action="{% url 'optimap:finalize_delete' %}"
+                  >
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                      Permanently Delete Account
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    data-dismiss="modal"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             </div>
@@ -98,4 +207,11 @@
       </div>
     </div>
   </div>
-  {% endblock %}
+  {% if request.session.delete_token %}
+  <script>
+    window.onload = function () {
+      $("#finalDeleteModal").modal("show"); // Auto-open final confirmation modal
+    };
+  </script>
+  {% endif %} {% endblock %}
+</div>
