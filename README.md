@@ -27,75 +27,124 @@ A complete list of existing parameters is provided in the file `optimap/.env.exa
 
 ## Run with Docker
 
+The project is containerized using Docker, with services defined in `docker-compose.yml`. To start all services, run:
+
 ```bash
 docker-compose up
+```
 
+### Initial Setup
+
+After starting the containers, apply database migrations:
+
+```bash
 # run migrations, in the directory where docker-compose is to resolve the name "web"
 docker-compose run web python manage.py makemigrations
 docker-compose run web python manage.py migrate
 ```
 
-Now open a browser at <http://localhost:8000/>.
+Now open a browser at <http://localhost:8001/>.
+
+#### Services Overview
+
+- db: Runs a PostgreSQL database with PostGIS extensions. Data is persisted in a Docker volume named db_data.
+- app: Python-based app serving HTTP requests.
+- web: Our primary Django web application.
+- webserver: An Nginx server for serving static files and test files.
+
+#### Ports
+
+- 5434: Database (PostgreSQL/PostGIS)
+- 8002: App (Python HTTP server)
+- 8001: Web application (Django server)
+- 8080: Webserver (Nginx)
 
 ## Development
 
-### Test data
+### Test Data
 
-The folder `/fixtures` contains some test data, either as an SQL command to insert into the database, or as a database dump that was created and can be loaded with [`django-admin`](https://docs.djangoproject.com/en/dev/ref/django-admin/).
-[`jq`](https://stedolan.github.io/jq/) is used for pretty-printing of the output.
+The folder `/fixtures` contains some test data, which can be used to populate the database during development. These data are provided either as SQL commands for insertion into the database or as database dumps that can be loaded using [`django-admin`](https://docs.djangoproject.com/en/dev/ref/django-admin/).
+
+### Managing Test Data
+
+#### Creating Test Data Dumps
+
+To create a data dump after generating or harvesting test data, use the following command:
 
 ```bash
-# create dump after creating/harvesting test data:
 python manage.py dumpdata --exclude=auth --exclude=contenttypes | jq > fixtures/test_data.json
+```
 
-# load:
+#### Loading Test Data
+
+To load the test data into your database, run:
+
+```bash
 python manage.py loaddata fixtures/test_data.json
 ```
 
-If you want to create more testdata manually, copy and paste the existing records or add more records in the admin backend (preferred).
-A useful tool for creating sensible geometries is <https://wktmap.com/>.
+#### Adding New Test Data
 
-### Run locally
+If additional test data is required, you can:
 
-1. Create a `.env` file based on `.env.example` in the same directory where `settings.py` resides and fill in the configuration settings as needed.
-2. Run the commands below, which use the built-in Python [`venv`](https://docs.python.org/3/library/venv.html), see [this tutorial](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/#create-and-use-virtual-environments) for details
+- Copy and paste existing records.
+- Add new records via the Django admin interface (preferred method).
+- Manually modify the test data JSON file.
+
+Tools for Geometries
+For creating or editing geometries, consider using the tool [WKTMap](https://wktmap.com/), which provides an easy way to generate Well-Known Text (WKT) representations of spatial data.
+
+### Run Locally
+
+1. Create a `.env` file based on `.env.example` in the same directory where `settings.py` resides, and fill in the configuration settings as needed.
+2. Run the commands below to set up and run the project locally. This setup uses the built-in Python [`venv`](https://docs.python.org/3/library/venv.html). Refer to [this tutorial](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/#create-and-use-virtual-environments) for more details.
 
 ```bash
-# once only: create virtual environment
-# python -m venv .venv
+# Create a virtual environment (once only)
+python -m venv .venv
+
+# Activate the virtual environment
 source .venv/bin/activate
+
+# Confirm Python path
 which python
 
+# Install required dependencies
 pip install -r requirements.txt
 
-# create local DB container (once)
-# docker run --name optimapDB -p 5432:5432 -e POSTGRES_USER=optimap -e POSTGRES_PASSWORD=optimap -e POSTGRES_DB=optimap -d postgis/postgis:14-3.3
+# Create a local database container (once only)
+docker run --name optimapDB -p 5432:5432 -e POSTGRES_USER=optimap -e POSTGRES_PASSWORD=optimap -e POSTGRES_DB=optimap -d postgis/postgis:15-3.4
 
-# start DB
+# Start the database container
 docker start optimapDB
 
-# run migrations
+# Apply database migrations
 python manage.py makemigrations
 python manage.py migrate
 
-# create cache table
+# Create a cache table
 python manage.py createcachetable
 
-# collect static files
+# Collect static files
 python manage.py collectstatic --noinput
 
-# start app
+# Start the Django development server
 python manage.py runserver
 
-# start app with configuration for development
+# Start the app with specific configurations for development
 OPTIMAP_CACHE=dummy OPTIMAP_DEBUG=True python manage.py runserver
 ```
 
 Now open a browser at <http://127.0.0.1:8000/>.
 
-See instructions below for creating a superuser and above for loading test data.
+#### Additional Setup
 
-When you are done, deactivate the virtual environment and stop the DB with:
+- Creating a Superuser: Refer to the instructions below to create a superuser for accessing the admin interface.
+- Loading Test Data: Refer to the instructions above to load test data into the database.
+
+#### Shutting Down
+
+When finished, deactivate the virtual environment and stop the database container:
 
 ```bash
 deactivate
@@ -111,24 +160,22 @@ Configuration for debugging with VS Code:
 
 ```json
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Python: Django Run",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "runserver"
-            ],
-            "env": {
-                "OPTIMAP_DEBUG": "True",
-                "OPTIMAP_CACHE": "dummy"
-            },
-            "django": true,
-            "justMyCode": true
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Django Run",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["runserver"],
+      "env": {
+        "OPTIMAP_DEBUG": "True",
+        "OPTIMAP_CACHE": "dummy"
+      },
+      "django": true,
+      "justMyCode": true
+    }
+  ]
 }
 ```
 
@@ -147,20 +194,27 @@ OPTIMAP_EMAIL_HOST=localhost
 OPTIMAP_EMAIL_PORT=5587
 ```
 
-### Create superusers/admin
+### Create Superusers/Admin
 
-Superusers/admin can be created  using the createsuperuser command:
+Superusers or administrators can be created using the `createsuperuser` command. This user will have access to the Django admin interface.
 
 ```bash
 python manage.py createsuperuser --username=optimap --email=nomail@optimap.science
 ```
 
-You will be prompted for a password.
-After you enter one, the user will be created immediately. If you leave off the --username or --email options, it will prompt you for those values.
+You will be prompted for a password. After entering one, the superuser will be created immediately. If you omit the --username or --email options, the command will prompt you for those values interactively.
 
-You can acess the admin page at <http://127.0.0.1:8000/admin/>.
+Access the admin interface at http://127.0.0.1:8000/admin/.
 
-You can also run the command in a containerised app with `docker-compose run web python manage.py ...`.
+#### Running in a Dockerized App
+
+To create a superuser within the containerized application, use the following command:
+
+```bash
+docker-compose run web python manage.py createsuperuser
+```
+
+This will run the same process as above but within the Docker environment. Ensure the container is running and accessible before executing this command
 
 ### Run tests
 
@@ -194,22 +248,17 @@ A configuration to debug the test code and also print deprecation warnings:
 
 ```json
 {
-    "name": "Python: Django Test",
-    "type": "python",
-    "request": "launch",
-    "pythonArgs": [
-        "-Wa"
-    ],
-    "program": "${workspaceFolder}/manage.py",
-    "args": [
-        "test",
-        "tests"
-    ],
-    "env": {
-        "OPTIMAP_DEBUG": "True"
-    },
-    "django": true,
-    "justMyCode": true
+  "name": "Python: Django Test",
+  "type": "python",
+  "request": "launch",
+  "pythonArgs": ["-Wa"],
+  "program": "${workspaceFolder}/manage.py",
+  "args": ["test", "tests"],
+  "env": {
+    "OPTIMAP_DEBUG": "True"
+  },
+  "django": true,
+  "justMyCode": true
 }
 ```
 
