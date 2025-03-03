@@ -1,6 +1,10 @@
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
 from django_currentuser.db.models import CurrentUserField
+from django.utils.timezone import now
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 STATUS_CHOICES = (
     ("d", "Draft"),
@@ -69,20 +73,41 @@ class Source(models.Model):
     last_harvest = models.DateTimeField(auto_now_add=True,null=True)
     
 class Subscription(models.Model):
-    name = models.CharField(max_length=4096)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="subscriptions", null=True, blank=True)
+    name = models.CharField(max_length=4096, default="default_subscription")
     search_term = models.CharField(max_length=4096,null=True)
     timeperiod_startdate = models.DateField(null=True)
     timeperiod_enddate = models.DateField(null=True)
-    search_area = models.GeometryCollectionField(null=True, blank=True)
-    user_name = models.CharField(max_length=4096)
+    region = models.GeometryCollectionField(null=True, blank=True)
+    subscribed = models.BooleanField(default=True) 
 
     def __str__(self):
         """Return string representation."""
         return self.name
 
     class Meta:
-        ordering = ['user_name']
+        ordering = ['name']
         verbose_name = "subscription"
+
+class SentEmailLog(models.Model):
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=255)
+    sent_at = models.DateTimeField(auto_now_add=True)
+    email_content = models.TextField(blank=True, null=True)
+    sent_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)  # ✅ Track who sent it
+
+    def __str__(self):
+        return f"Email to {self.recipient_email} at {self.sent_at}"
+
+    @classmethod
+    def log_email(cls, recipient, subject, content, sent_by=None):
+        cls.objects.create(
+            recipient_email=recipient,
+            subject=subject,
+            sent_at=now(),
+            email_content=content,
+            sent_by=sent_by
+        )
 
 # handle import/export relations, see https://django-import-export.readthedocs.io/en/stable/advanced_usage.html#creating-non-existent-relations
 from import_export import fields, resources
