@@ -2,12 +2,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 from django_q.models import Schedule
-from publications.models import Publication
+from publications.models import Publication, HarvestingEvent, Source
 from bs4 import BeautifulSoup
 import json
 import xml.dom.minidom
 from django.contrib.gis.geos import GEOSGeometry
 import requests
+from django.utils import timezone 
+from requests.auth import HTTPBasicAuth
+import os
 
 
 def extract_geometry_from_html(content):
@@ -16,7 +19,6 @@ def extract_geometry_from_html(content):
             data = tag.get("content", None)
             try:
                 geom = json.loads(data)
-
                 geom_data = geom["features"][0]["geometry"]
                 # preparing geometry data in accordance to geosAPI fields
                 type_geom= {'type': 'GeometryCollection'}
@@ -43,64 +45,97 @@ def extract_timeperiod_from_html(content):
     # returning arrays for array field in DB
     return [period[0]], [period[1]]
 
-def parse_oai_xml_and_save_publications(content):
+def parse_oai_xml_and_save_publications(content, event):
+
     DOMTree = xml.dom.minidom.parseString(content)
-    collection = DOMTree.documentElement # pass DOMTree as argument
-    articles = collection.getElementsByTagName("dc:identifier")
-    articles_count_in_journal = len(articles)
-    for i in range(articles_count_in_journal):
-        identifier = collection.getElementsByTagName("dc:identifier")
-        identifier_value = identifier[i].firstChild.nodeValue
-        if identifier_value.startswith('http'):
+    collection = DOMTree.documentElement
 
-            with requests.get(identifier_value) as response:
-                soup = BeautifulSoup(response.content, 'html.parser')
+    records = collection.getElementsByTagName("record")
 
-                geom_object = extract_geometry_from_html(soup)
-                period_start, period_end = extract_timeperiod_from_html(soup)
+    if not records:
+        logger.warning("No articles found in OAI-PMH response!")
+        return
 
-        else:
+    existing_urls = set(Publication.objects.values_list('url', flat=True))  # ✅ Cache existing URLs
+    existing_dois = set(Publication.objects.exclude(doi__isnull=True).values_list('doi', flat=True))  # ✅ Cache existing DOIs
+
+    for record in records:
+        try:
+            def get_text(tag_name):
+                nodes = record.getElementsByTagName(tag_name)
+                return nodes[0].firstChild.nodeValue.strip() if nodes and nodes[0].firstChild else None
+
+            identifier_value = get_text("dc:identifier")
+            title_value = get_text("dc:title")
+            abstract_text = get_text("dc:description")
+            journal_value = get_text("dc:publisher")
+            date_value = get_text("dc:date")
+
+            doi_nodes = record.getElementsByTagName("dc:identifier")
+            doi_text = next((node.firstChild.nodeValue.strip() for node in doi_nodes if "doi.org" in node.firstChild.nodeValue), None)
+
+            if not identifier_value or not identifier_value.startswith("http"):
+                logger.warning("Skipping record with invalid URL: %s", identifier_value)
+                continue
+
+            if doi_text and doi_text in existing_dois:
+                logger.info("Skipping duplicate publication (DOI): %s", doi_text)
+                continue
+
+            if identifier_value in existing_urls:
+                logger.info("Skipping duplicate publication (URL): %s", identifier_value)
+                continue
+
+            existing_urls.add(identifier_value)
+            if doi_text:
+                existing_dois.add(doi_text)
+
             geom_object = None
             period_start = []
             period_end = []
+            with requests.get(identifier_value) as response:
+                soup = BeautifulSoup(response.content, "html.parser")
+                geom_object = extract_geometry_from_html(soup)
+                period_start, period_end = extract_timeperiod_from_html(soup)
 
-        title = collection.getElementsByTagName("dc:title")
-        if title:
-            title_value = title[0].firstChild.nodeValue
-        else :
-            title_value = None
-        abstract = collection.getElementsByTagName("dc:description")
-        if abstract:
-            abstract_text = abstract[0].firstChild.nodeValue
-        else:
-            abstract_text = None
-        journal = collection.getElementsByTagName("dc:publisher")
-        if journal:
-            journal_value = journal[0].firstChild.nodeValue
-        else:
-            journal_value = None
-        date = collection.getElementsByTagName("dc:date")
-        if date:
-            date_value = date[0].firstChild.nodeValue
-        else:
-            date_value = None
+            publication = Publication(
+                title=title_value,
+                abstract=abstract_text,
+                publicationDate=date_value,
+                url=identifier_value,
+                doi=doi_text if doi_text else None,
+                source=journal_value,
+                geometry=geom_object,
+                timeperiod_startdate=period_start,
+                timeperiod_enddate=period_end
+            )
+            publication.save()
+            print("Saved new publication: %s", identifier_value)
 
-        publication = Publication(
-            title = title_value,
-            abstract = abstract_text,
-            publicationDate = date_value,
-            url = identifier_value,
-            journal = journal_value,
-            geometry = geom_object,
-            timeperiod_startdate = period_start,
-            timeperiod_enddate = period_end)
-        publication.save()
-        logger.info('Saved new publication for %s: %s', identifier_value, publication)
+        except Exception as e:
+            print("Error parsing record: %s", str(e))
+            continue
 
-def harvest_oai_endpoint(url):
+def harvest_oai_endpoint(source_id):
+    source = Source.objects.get(id=source_id)
+    event = HarvestingEvent.objects.create(source=source, status="in_progress")
+
+    username = os.getenv("OAI_USERNAME")
+    password = os.getenv("OAI_PASSWORD")
+
     try:
-        with requests.Session() as s:
-            response = s.get(url)
-            parse_oai_xml_and_save_publications(response.content)
+        with requests.Session() as session:
+            response = session.get(source.url_field, auth=HTTPBasicAuth(username, password))
+            response.raise_for_status() 
+            parse_oai_xml_and_save_publications(response.content, event)
+
+            event.status = "completed"
+            event.completed_at = timezone.now()
+            event.save()
+            print("Harvesting completed for", source.url_field)
+
     except requests.exceptions.RequestException as e:
-        print ("The requested URL is invalid or has bad connection.Please change the URL")
+        print("Error harvesting from", source.url_field, ":", e)
+        event.status = "failed"
+        event.log = str(e)
+        event.save()
