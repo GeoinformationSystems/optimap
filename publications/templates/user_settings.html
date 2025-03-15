@@ -161,7 +161,9 @@
           data-parent="#user_settings"
         >
           <div class="card-body">
-            <p>Deleting account is permenant. It cannot be reversed.</p>
+            <p class="text-wrap text-break text-center mb-3">
+              Deleting account is permanent. It cannot be reversed.
+            </p>
 
             <button
               type="button"
@@ -191,7 +193,10 @@
                     <p>Do you really want to delete this account ?</p>
                   </div>
                   <div class="modal-footer">
-                    <form action="{% url 'optimap:delete' %}" method="post">
+                    <form
+                      action="{% url 'optimap:request_delete' %}"
+                      method="post"
+                    >
                       {% csrf_token %}
                       <button
                         type="submit"
@@ -214,14 +219,62 @@
             </div>
           </div>
         </div>
+        <!-- Final Confirmation Modal (Only Shows After Clicking Email Link) -->
+        <div id="finalDeleteModal" class="modal fade" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Final Confirmation</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                  <span>&times;</span>
+                </button>
+              </div>
+              <div class="modal-body">
+                <div class="container">
+                  <p class="text-wrap text-center mb-3">
+                    Confirming this will permenantly delete your account.
+                  </p>
+                </div>
+                <div class="modal-footer">
+                  <form
+                    method="POST"
+                    action="{% url 'optimap:finalize_delete' %}"
+                  >
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                      Permanently Delete Account
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    data-dismiss="modal"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </div>
+{% if delete_token %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    let modalShown = sessionStorage.getItem("modal_shown");
+    if (!modalShown) {
+      $("#finalDeleteModal").modal("show");
+      sessionStorage.setItem("modal_shown", "true");
+    }
+  });
+</script>
+{% endif %}
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     let toggle = document.getElementById("notify_new_manuscripts");
-
     if ("{{ profile.notify_new_manuscripts }}" === "True") {
       toggle.checked = true;
     } else {

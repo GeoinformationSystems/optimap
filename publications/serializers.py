@@ -2,6 +2,8 @@
 
 from rest_framework_gis import serializers
 from .models import Publication
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 from publications.models import Publication,Subscription
 
@@ -24,3 +26,13 @@ class SubscriptionSerializer(serializers.GeoFeatureModelSerializer):
         geo_field = "search_area"
         auto_bbox = True
         
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email"] 
+
+    def to_representation(self, instance):
+        """Ensure deleted users are excluded from serialization."""
+        if instance.deleted:  
+            return None 
+        return super().to_representation(instance)

@@ -10,10 +10,6 @@ from publications.tasks import send_monthly_email, schedule_monthly_email_task
 from django_q.models import Schedule
 from datetime import datetime, timedelta
 
-
-# Unregister the default User admin
-admin.site.unregister(User)
-
 @admin.action(description="Mark selected publications as published")
 def make_public(modeladmin, request, queryset):
     queryset.update(status="p")
