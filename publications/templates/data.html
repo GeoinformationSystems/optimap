@@ -1,31 +1,57 @@
 {% extends "main.html" %}
-
 {% load optimap_extras %}
 
-{% block title %}API | {% endblock %}
+{% block title %}Data & API | {% endblock %}
 
 {% block content %}
 
 <div class="row justify-content-center">
-  <div class="col-4 py-5 text-wrap">
-    <h1 class="py-2">OPTIMAP data access</h1>
+  <div class="col-8 py-5 text-wrap">
+    <h1 class="py-2">OPTIMAP Data &amp; API</h1>
 
-    <p class="lead">All publication metadata published in OPTIMAP is licensed under a Create Commons Zero (<a href='https://creativecommons.org/publicdomain/zero/1.0/'>CC-0</a>) license.</p>
+    <p class="lead">
+      All publication metadata published in OPTIMAP is licensed under
+      <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0</a>.
+    </p>
 
     <h2 class="py-2">API endpoint</h2>
-    <p>The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>. Visit the URL in your browser to get an interactive interface for exploring the API.</p>
+    <p>
+      The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>.
+      Visit the URL in your browser to explore the API.
+    </p>
 
-    <p>You can query all publications with the following request (using <a href="https://stedolan.github.io/jq/" title="Link to jq project website"><code>jq</code></a> for formatting of the response):</p>
-    <pre>
-      curl -X GET {{ site|addstr:"/api" }}/api/publications/ | jq
-    </pre>
+    <p>
+      Example request to fetch publications using
+      <a href="https://stedolan.github.io/jq/"><code>jq</code></a>:
+    </p>
+<pre>
+curl -X GET {{ site|addstr:"/api" }}/publications/ | jq
+</pre>
 
-    <h2 class="py-2">OpenAPI schema</h2>
-    <p>You can download an OpenAPI specification of the api at <b>{{ site|addstr:"/api/schema"|urlize }}</b>.</p>
+    <h2>OpenAPI schema</h2>
+    <p>
+      Download an OpenAPI specification at
+      <b>{{ site|addstr:"/api/schema"|urlize }}</b>.
+    </p>
 
-    <h2 class="py-2">OpenAPI user interface</h2>
-    <p>You can explore the API with an interactive user intreface built based on the OpenAPI schema at <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.</p>
+    <h2>Interactive docs</h2>
+    <p>
+      Explore the API with an interactive UI at
+      <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.
+    </p>
 
+    <h2 class="py-2">Downloadable files</h2>
+    <p>
+      Our data exports are generated on a schedule and can be downloaded here:
+    </p>
+    <ul>
+      <li>
+        <a href="{% url 'download_cached_geojson' %}">GeoJSON (publications.geojson)</a>
+      </li>
+      <li>
+        <a href="{% url 'download_cached_geojson_gz' %}">Gzipped GeoJSON (publications.geojson.gz)</a>
+      </li>
+    </ul>
   </div>
 </div>
 
