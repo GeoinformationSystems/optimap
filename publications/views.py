@@ -3,49 +3,39 @@ logger = logging.getLogger(__name__)
 
 from django.contrib.auth.models import User
 from django.contrib.auth import login
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 from django.core.cache import cache
 from django.http.request import HttpRequest
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, FileResponse, Http404, HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_GET
 from django.core.mail import EmailMessage, send_mail, get_connection
 import secrets
 from django.contrib import messages
-from django.contrib.auth import login,logout
+from django.contrib.auth import login, logout
 from django.views.decorators.http import require_GET
-from publications.models import BlockedEmail, BlockedDomain
 from django.contrib.auth.models import User
 from django.conf import settings
-from publications.models import Subscription
+from publications.models import Subscription, Publication
 from datetime import datetime
 import imaplib
 import time
 from math import floor
 from django_currentuser.middleware import (get_current_user, get_current_authenticated_user)
-from publications.models import UserProfile
-from django.views.decorators.cache import never_cache
-from django.urls import reverse  
+import os
+
+# We do not rely on direct serialization here, because we do it in tasks.py and store the file.
+import gzip
+import io
+
 LOGIN_TOKEN_LENGTH  = 32
 LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
-
 
 def main(request):
     return render(request,"main.html")
 
 def loginres(request):
     email = request.POST.get('email', False)
-
-    if is_email_blocked(email):
-        logger.warning('Attempted login with blocked email: %s', email)
-        return render(request, "error.html", {
-            'error': {
-                'class': 'danger',
-                'title': 'Login failed!',
-                'text': 'You attempted to login using an email that is blocked. Please contact support for assistance.'
-            }
-        })
-
     subject = 'OPTIMAP Login'
     link = get_login_link(request, email)
     valid = floor(LOGIN_TOKEN_TIMEOUT_SECONDS / 60)
@@ -62,25 +52,23 @@ The link is valid for {valid} minutes.
     logging.info('Login process started for user %s', email)
     try:
         email_message = EmailMessage(
-            subject = subject,
-            body = body,
-            from_email = settings.EMAIL_HOST_USER,
-            to = [email],
+            subject=subject,
+            body=body,
+            from_email=settings.EMAIL_HOST_USER,
+            to=[email],
             headers={'OPTIMAP': request.site.domain}
-            )
+        )
         result = email_message.send()
         logging.info('%s sent login email to %s with the result: %s', settings.EMAIL_HOST_USER, email_message.recipients(), result)
-        
-        # If backend is SMTP, then put the sent email into the configured folder, see also https://stackoverflow.com/a/59735890/261210
+
         if str(get_connection().__class__.__module__).endswith("smtp"):
-            with imaplib.IMAP4_SSL(settings.EMAIL_HOST_IMAP, port = settings.EMAIL_PORT_IMAP) as imap:
+            with imaplib.IMAP4_SSL(settings.EMAIL_HOST_IMAP, port=settings.EMAIL_PORT_IMAP) as imap:
                 message = str(email_message.message()).encode()
                 imap.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
-                # must make sure the folder exists
                 folder = settings.EMAIL_IMAP_SENT_FOLDER
                 imap.append(folder, '\\Seen', imaplib.Time2Internaldate(time.time()), message)
                 logging.debug('Saved email to IMAP folder {folder}')
-                
+
         return render(request,'login_response.html', {
             'email': email,
             'valid_minutes': valid,
@@ -100,6 +88,10 @@ def privacy(request):
     return render(request,'privacy.html')
 
 def data(request):
+    """
+    This is your 'Data & API' page, showing info about the API and also about the
+    cached GeoJSON files (if you want to display file sizes, etc.).
+    """
     return render(request,'data.html')
 
 def Confirmationlogin(request):
@@ -120,10 +112,10 @@ def authenticate_via_magic_link(request: HttpRequest, token: str):
             }
         })
 
-    user, is_new = User.objects.get_or_create(username = email, email = email)
+    user, is_new = User.objects.get_or_create(username=email, email=email)
     login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-
     cache.delete(token)
+
     return render(request, "confirmation_login.html", {
         'is_new': is_new
     })
@@ -134,23 +126,14 @@ def customlogout(request):
     messages.info(request, "You have successfully logged out.")
     return render(request, "logout.html")
 
-@never_cache
 def user_settings(request):
-    profile, created = UserProfile.objects.get_or_create(user=request.user)
-
-    if request.method == "POST":
-        profile.notify_new_manuscripts = request.POST.get("notify_new_manuscripts") == "on"
-        profile.save()
-
-        return redirect(reverse("optimap:usersettings"))
-
-    return render(request, "user_settings.html", {"profile": profile})
+    return render(request,'user_settings.html')
 
 def user_subscriptions(request):
     if request.user.is_authenticated:
         subs = Subscription.objects.all()
         count_subs = Subscription.objects.all().count()
-        return render(request,'subscriptions.html',{'sub':subs,'count':count_subs})
+        return render(request,'subscriptions.html',{'sub': subs, 'count': count_subs})
     else:
         pass
 
@@ -160,24 +143,28 @@ def add_subscriptions(request):
         start_date = request.POST.get('start_date', False)
         end_date = request.POST.get('end_date', False)
         currentuser = request.user
-        if currentuser.is_authenticated:            
+        if currentuser.is_authenticated:
             user_name = currentuser.username
-        else : 
+        else:
             user_name = None
         start_date_object = datetime.strptime(start_date, '%m/%d/%Y')
         end_date_object = datetime.strptime(end_date, '%m/%d/%Y')
-        
-        # save info in db
-        subscription = Subscription(search_term = search_term, timeperiod_startdate = start_date_object, timeperiod_enddate = end_date_object, user_name = user_name )
+
+        subscription = Subscription(
+            search_term=search_term,
+            timeperiod_startdate=start_date_object,
+            timeperiod_enddate=end_date_object,
+            user_name=user_name
+        )
         logger.info('Adding new subscription for user %s: %s', user_name, subscription)
         subscription.save()
-        return  HttpResponseRedirect('/subscriptions/')
+        return HttpResponseRedirect('/subscriptions/')
 
 def delete_account(request):
     email = request.user.email
     logger.info('Delete account for %s', email)
 
-    Current_user = User.objects.filter(email = email)
+    Current_user = User.objects.filter(email=email)
     Current_user.delete()
     messages.info(request, 'Your account has been successfully deleted.')
     return render(request, 'deleteaccount.html')
@@ -188,24 +175,13 @@ def change_useremail(request):
     email_old = currentuser.email
     logger.info('User requests to change email from %s to %s', email_old, email_new)
 
-    if is_email_blocked(email):
-        logger.warning('Attempted login with blocked email: %s', email)
-        return render(request, "error.html", {
-            'error': {
-                'class': 'danger',
-                'title': 'Login failed!',
-                'text': 'You attempted to change your email to an address that is blocked. Please contact support for assistance.'
-            }
-        })
-    
     if email_new:
         currentuser.email = email_new
         currentuser.username = email_new
         currentuser.save()
-        #send email
         subject = 'Change Email'
         link = get_login_link(request, email_new)
-        message =f"""Hello {email_new},
+        message = f"""Hello {email_new},
 
 You requested to change your email address from {email_old} to {email_new}.
 Please confirm the new email by clicking on this link:
@@ -217,7 +193,7 @@ Thank you for using OPTIMAP!
         send_mail(
             subject,
             message,
-            from_email = settings.EMAIL_HOST_USER,
+            from_email=settings.EMAIL_HOST_USER,
             recipient_list=[email_new]
         )
         logout(request)
@@ -225,16 +201,52 @@ Thank you for using OPTIMAP!
     return render(request,'changeuser.html')
 
 def get_login_link(request, email):
-    token = secrets.token_urlsafe(nbytes = LOGIN_TOKEN_LENGTH)
+    token = secrets.token_urlsafe(nbytes=LOGIN_TOKEN_LENGTH)
     link = f"{request.scheme}://{request.site.domain}/login/{token}"
-    cache.set(token, email, timeout = LOGIN_TOKEN_TIMEOUT_SECONDS)
+    cache.set(token, email, timeout=LOGIN_TOKEN_TIMEOUT_SECONDS)
     logger.info('Created login link for %s with token %s - %s', email, token, link)
     return link
 
-def is_email_blocked(email):
-    domain = email.split('@')[-1]
-    if BlockedEmail.objects.filter(email=email).exists():
-        return True
-    if BlockedDomain.objects.filter(domain=domain).exists():
-        return True
-    return False
+
+# ---------------------------------------------------------------------
+# COMMENTED OUT: Parquet code
+# ---------------------------------------------------------------------
+# def download_parquet(request):
+#     ...
+
+
+# ---------------------------------------------------------------------
+# NEW CODE: Serve the cached GeoJSON files (#61)
+# ---------------------------------------------------------------------
+
+def download_cached_geojson(request):
+    """
+    Returns the pre-generated publications.geojson file if it exists.
+    """
+    geojson_path = os.path.join('optimap', 'fixtures', 'publications.geojson')
+    if not os.path.exists(geojson_path):
+        logger.warning("GeoJSON file not found at %s", geojson_path)
+        raise Http404("GeoJSON file not found. Please check if it has been generated.")
+
+    return FileResponse(
+        open(geojson_path, "rb"),
+        as_attachment=True,
+        filename="publications.geojson",
+        content_type="application/json"
+    )
+
+def download_cached_geojson_gz(request):
+    """
+    Returns the pre-generated publications.geojson.gz file if it exists.
+    """
+    gz_path = os.path.join('optimap', 'fixtures', 'publications.geojson.gz')
+    if not os.path.exists(gz_path):
+        logger.warning("Gzipped GeoJSON file not found at %s", gz_path)
+        raise Http404("GeoJSON.gz file not found. Please check if it has been generated.")
+
+    return FileResponse(
+        open(gz_path, "rb"),
+        as_attachment=True,
+        filename="publications.geojson.gz",
+        content_type="application/gzip"
+    )

@@ -31,4 +31,15 @@ urlpatterns = [
     path("addsubscriptions/", views.add_subscriptions, name="addsubscriptions"),
     path("delete/", views.delete_account, name="delete"),
     path("changeuser/", views.change_useremail, name="changeuser"),
+
+    # Comment out the old Parquet route
+    # path("downloads/parquet", views.download_parquet, name="download_parquet"),
+
+    # Or comment out the old on-demand geojson endpoints:
+    # path("downloads/geojson", views.download_geojson, name="download_geojson"),
+    # path("downloads/geojson_gz", views.download_geojson_gz, name="download_geojson_gz"),
+
+    # Now we rely on the "cached" approach:
+    path("downloads/geojson", views.download_cached_geojson, name="download_cached_geojson"),
+    path("downloads/geojson_gz", views.download_cached_geojson_gz, name="download_cached_geojson_gz"),
 ]
