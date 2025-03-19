@@ -35,8 +35,9 @@ from django.urls import reverse
 
 LOGIN_TOKEN_LENGTH  = 32
 LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
+EMAIL_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 ACCOUNT_DELETE_TOKEN_TIMEOUT_SECONDS = 10 * 60
-USER_DELETE_TOKEN_PREFIX = "user_delete_token"
+USER_DELETE_TOKEN_PREFIX = "user_delete_token" 
 
 def main(request):
     return render(request,"main.html")
@@ -209,14 +210,14 @@ def delete_account(request):
     messages.info(request, 'Your account has been successfully deleted.')
     return render(request, 'deleteaccount.html')
 
+@login_required
 def change_useremail(request):
     email_new = request.POST.get('email_new', False)
     currentuser = request.user
     email_old = currentuser.email
-    logger.info('User requests to change email from %s to %s', email_old, email_new)
 
-    if is_email_blocked(email):
-        logger.warning('Attempted login with blocked email: %s', email)
+    if is_email_blocked(email_new):
+        logger.warning('Attempted login with blocked email: %s', email_new)
         return render(request, "error.html", {
             'error': {
                 'class': 'danger',
@@ -224,32 +225,80 @@ def change_useremail(request):
                 'text': 'You attempted to change your email to an address that is blocked. Please contact support for assistance.'
             }
         })
-    
-    if email_new:
-        currentuser.email = email_new
-        currentuser.username = email_new
-        currentuser.save()
-        #send email
-        subject = 'Change Email'
-        link = get_login_link(request, email_new)
-        message =f"""Hello {email_new},
+        messages.error(request, "Invalid email change request.")
+        return render(request, 'changeuser.html')
 
-You requested to change your email address from {email_old} to {email_new}.
+    if not email_new or email_new == email_old:
+        messages.error(request, "Invalid email change request.")
+        return render(request, 'changeuser.html')
+
+    if User.objects.filter(email=email_new).exists():
+        messages.error(request, "This email is already in use.")
+        return render(request, 'changeuser.html')
+
+    token = secrets.token_urlsafe(32)
+    cache.set(
+        f"email_confirmation_{email_new}",
+        {"token": token, "old_email": request.user.email}, 
+        timeout=EMAIL_CONFIRMATION_TIMEOUT_SECONDS,
+    )
+
+    confirm_url = request.build_absolute_uri(
+        reverse("optimap:confirm-email-change", args=[token, email_new])
+    )
+
+    subject = 'Confirm Your Email Change'
+    message = f"""Hello,
+
+You requested to change your email from {email_old} to {email_new}.
 Please confirm the new email by clicking on this link:
 
-{link}
+{confirm_url}
+
+This link will expire in 10 minutes.
 
 Thank you for using OPTIMAP!
 """
-        send_mail(
-            subject,
-            message,
-            from_email = settings.EMAIL_HOST_USER,
-            recipient_list=[email_new]
-        )
-        logout(request)
+    send_mail(subject, message, settings.EMAIL_HOST_USER, [email_new])
+    messages.info(request, "A confirmation email has been sent.")
+    logout(request)
 
-    return render(request,'changeuser.html')
+    return render(request, 'changeuser.html')
+
+def confirm_email_change(request, token, email_new):
+    cached_data = cache.get(f"email_confirmation_{email_new}")
+
+    if not cached_data:
+        messages.error(request, "Invalid or expired confirmation link.")
+        return HttpResponseRedirect("/")
+
+    if isinstance(cached_data, str):  
+        messages.error(request, "Cache error: Expected dictionary, got string.")
+        return HttpResponseRedirect("/")
+
+    stored_token = cached_data.get("token")
+    old_email = cached_data.get("old_email")
+
+    if stored_token != token:
+        messages.error(request, "Invalid or expired confirmation link.")
+        return HttpResponseRedirect("/")
+
+    user = User.objects.filter(email=old_email).first()
+    
+    if not user:
+        messages.error(request, "User not found.")
+        return HttpResponseRedirect("/")
+
+    user.email = email_new
+    user.username = email_new  
+    user.save()
+
+    cache.delete(f"email_confirmation_{email_new}")
+
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+    messages.success(request, "Your email has been successfully updated!")
+    return redirect("/usersettings/")
 
 def get_login_link(request, email):
     token = secrets.token_urlsafe(nbytes = LOGIN_TOKEN_LENGTH)
