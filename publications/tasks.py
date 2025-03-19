@@ -8,17 +8,23 @@ import json
 import xml.dom.minidom
 from django.contrib.gis.geos import GEOSGeometry
 import requests
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
 from django.conf import settings
 from django.utils.timezone import now
 from django.contrib.auth.models import User
-from .models import EmailLog
+from .models import EmailLog, Subscription
 from datetime import datetime, timedelta
+from django.urls import reverse
+from urllib.parse import quote
+from datetime import datetime
+from django_q.tasks import schedule
+from django.utils import timezone 
 from django_q.tasks import schedule
 from django_q.models import Schedule
 import time  
 import calendar
 
+BASE_URL = settings.BASE_URL
 
 def extract_geometry_from_html(content):
     for tag in content.find_all("meta"):
@@ -155,14 +161,76 @@ def send_monthly_email(trigger_source='manual', sent_by=None):
             )
 
 
-def schedule_monthly_email_task(sent_by=None):
+def send_subscription_based_email(trigger_source='manual', sent_by=None, user_ids=None):
+    query = Subscription.objects.filter(subscribed=True, user__isnull=False) 
+    if user_ids:
+        query = query.filter(user__id__in=user_ids) 
+
+    for subscription in query:
+        user_email = subscription.user.email  
+
+        new_publications = Publication.objects.filter(
+                    geometry__intersects=subscription.region, 
+                    # publicationDate__gte=subscription.timeperiod_startdate,  TODO: If we need to add query for timeperiod
+                    # publicationDate__lte=subscription.timeperiod_enddate  
+        )
+
+        if not new_publications.exists():
+            continue 
+
+        unsubscribe_specific = f"{BASE_URL}{reverse('optimap:unsubscribe')}?search={quote(subscription.search_term)}" # TODO: Change base_url to actual URL
+        unsubscribe_all = f"{BASE_URL}{reverse('optimap:unsubscribe')}?all=true"
+
+        subject = f"New Manuscripts Matching '{subscription.search_term}'"
+
+        content = f"""
+            <html>
+            <body>
+                <p>Dear {subscription.user.username},</p>
+                <p>Here are the latest manuscripts matching your subscription:</p>
+                <ul>
+                    {"".join([f'<li>{pub.title} ({pub.publicationDate})</li>' for pub in new_publications])}
+                </ul>
+                <p><a href="{unsubscribe_specific}">Unsubscribe from '{subscription.search_term}'</a> | 
+                <a href="{unsubscribe_all}">Unsubscribe from All</a></p>
+            </body>
+            </html>
+            """
+
+        try:
+            email = EmailMultiAlternatives(subject, content, settings.EMAIL_HOST_USER, [user_email])
+            email.attach_alternative(content, "text/html")
+            email.send()
+            EmailLog.log_email(
+                user_email, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="success"
+            )
+
+        except Exception as e:
+            error_message = str(e)
+            EmailLog.log_email(
+                user_email, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="failed", error_message=error_message
+            )
+
+def schedule_monthly_email_task():
     if not Schedule.objects.filter(func='publications.tasks.send_monthly_email').exists():
         now = datetime.now()
         last_day_of_month = calendar.monthrange(now.year, now.month)[1]  # Get last day of the month
-
         next_run_date = now.replace(day=last_day_of_month, hour=23, minute=59)  # Run at the end of the last day
         schedule(
             'publications.tasks.send_monthly_email',
+            schedule_type='M',
+            repeats=-1,
+            next_run=next_run_date,
+            kwargs={'trigger_source': 'scheduled', 'sent_by': sent_by.id if sent_by else None} 
+        )
+
+def schedule_subscription_email_task():
+    if not Schedule.objects.filter(func='publications.tasks.send_subscription_based_email').exists():
+        now = datetime.now()
+        last_day_of_month = calendar.monthrange(now.year, now.month)[1]  # Get last day of the month
+        next_run_date = now.replace(day=last_day_of_month, hour=23, minute=59)  # Run at the end of the last day
+        schedule(
+            'publications.tasks.send_subscription_based_email',
             schedule_type='M',
             repeats=-1,
             next_run=next_run_date,

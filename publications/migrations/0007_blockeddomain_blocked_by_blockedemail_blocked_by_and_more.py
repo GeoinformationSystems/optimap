@@ -46,6 +46,6 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.DeleteModel(
-            name='SentEmailLog',
+            name='EmailLog',
         ),
     ]

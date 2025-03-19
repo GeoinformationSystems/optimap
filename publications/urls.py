@@ -28,6 +28,7 @@ urlpatterns = [
     path("logout/", views.customlogout, name="logout"),
     path("usersettings/", views.user_settings, name="usersettings"),
     path("subscriptions/", views.user_subscriptions, name="subscriptions"),
+    path("unsubscribe/", views.unsubscribe, name="unsubscribe"),
     path("addsubscriptions/", views.add_subscriptions, name="addsubscriptions"),
     path("delete/", views.delete_account, name="delete"),
     path("changeuser/", views.change_useremail, name="changeuser"),

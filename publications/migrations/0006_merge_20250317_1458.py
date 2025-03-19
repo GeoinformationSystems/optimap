@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('publications', '0004_blockeddomain_blockedemail'),
-        ('publications', '0005_sentemaillog_sent_by'),
+        ('publications', '0005_emaillog_sent_by'),
     ]
 
     operations = [
