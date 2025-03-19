@@ -1,6 +1,7 @@
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
 from django_currentuser.db.models import CurrentUserField
+from django_q.models import Schedule
 from django.utils.timezone import now
 from django.contrib.auth.models import AbstractUser, Group, Permission
 import uuid
@@ -38,7 +39,7 @@ class CustomUser(AbstractUser):
         logger.info(f"User {self.username} (ID: {self.id}) was restored.")
 
 class Publication(models.Model):
-    # required fields      
+    # required fields
     title = models.TextField()
     status = models.CharField(max_length=1, choices=STATUS_CHOICES, default="d")
     created_by = CurrentUserField( # see useful hint at https://github.com/zsoldosp/django-currentuser/issues/69
@@ -61,10 +62,20 @@ class Publication(models.Model):
     provenance = models.TextField(null=True, blank=True)
     publicationDate = models.DateField(null=True, blank=True)
     abstract = models.TextField(null=True, blank=True)
-    url = models.URLField(max_length=1024, null=True, blank=True)
+    url = models.URLField(max_length=1024, null=True, blank=True, unique=True)
     geometry = models.GeometryCollectionField(verbose_name='Publication geometry/ies', srid = 4326, null=True, blank=True)# https://docs.openalex.org/api-entities/sources
     timeperiod_startdate = ArrayField(models.CharField(max_length=1024, null=True), null=True, blank=True)
     timeperiod_enddate = ArrayField(models.CharField(max_length=1024, null=True), null=True, blank=True)
+
+    # Linking to HarvestingEvent as "job"
+    job = models.ForeignKey(
+        'HarvestingEvent', 
+        on_delete=models.CASCADE, 
+        related_name='publications', 
+        null=True, 
+        blank=True
+    )
+
 
     def get_absolute_url(self):
         return "/api/v1/publications/%i.json" % self.id
@@ -72,6 +83,10 @@ class Publication(models.Model):
 
     class Meta:
         ordering = ['-id']
+        constraints = [
+            models.UniqueConstraint(fields=['doi', 'url'], name='unique_publication_entry')
+        ]
+
 
     def __str__(self):
         """Return string representation."""
@@ -94,7 +109,20 @@ class Source(models.Model):
     url_field = models.URLField(max_length = 999)
     harvest_interval_minutes = models.IntegerField(default=60*24*3)
     last_harvest = models.DateTimeField(auto_now_add=True,null=True)
-    
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        Schedule.objects.filter(name=f"Harvest Source {self.id}").delete()  # Avoid duplicates
+        Schedule.objects.create(
+            func='publications.tasks.harvest_oai_endpoint',
+            args=str(self.id),
+            schedule_type=Schedule.MINUTES,
+            minutes=self.harvest_interval_minutes,
+            name=f"Harvest Source {self.id}",
+        )
+
+
+
 class Subscription(models.Model):
     name = models.CharField(max_length=4096)
     search_term = models.CharField(max_length=4096,null=True)
@@ -168,6 +196,26 @@ class PublicationResource(resources.ModelResource):
     class Meta:
         model = Publication
         fields = ('created_by','updated_by',)
+
+class HarvestingEvent(models.Model):
+    source = models.ForeignKey('Source', on_delete=models.CASCADE, related_name='harvesting_events')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True) 
+    started_at = models.DateTimeField(auto_now_add=True)  
+    completed_at = models.DateTimeField(null=True, blank=True) 
+    status = models.CharField(
+        max_length=16,
+        choices=(
+            ('pending', 'Pending'),
+            ('in_progress', 'In Progress'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed'),
+        ),
+        default='pending'
+    )  
+
+    def __str__(self):
+        return f"Harvesting Event ({self.status}) for {self.source.url} at {self.started_at}"
+
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
