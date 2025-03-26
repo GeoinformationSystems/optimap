@@ -205,6 +205,8 @@ MIDDLEWARE = [
     "django.contrib.sites.middleware.CurrentSiteMiddleware",
     "sesame.middleware.AuthenticationMiddleware",
     "django_currentuser.middleware.ThreadLocalUserMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
+
 ]
 
 ROOT_URLCONF = 'optimap.urls'

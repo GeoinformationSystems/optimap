@@ -26,6 +26,11 @@
     <h2 class="py-2">OpenAPI user interface</h2>
     <p>You can explore the API with an interactive user intreface built based on the OpenAPI schema at <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.</p>
 
+    <!-- New Section: Download GeoJSON -->
+    <h2 class="py-2">Download Publication Data as GeoJSON</h2>
+    <p>Click the button below to download all publication geometries and metadata as a GeoJSON file. The file can be automatically compressed if your browser supports gzip.</p>
+    <p><a class="btn btn-primary" href="{% url 'publications:download_geojson' %}">Download GeoJSON</a></p>
+
   </div>
 </div>
 

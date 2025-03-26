@@ -25,8 +25,9 @@ sitemaps = {
 }
 
 urlpatterns = [
-    path('admin/', admin.site.urls),    
-    path('', include('publications.urls')),
+    path('admin/', admin.site.urls),
+    # Updated inclusion with namespace
+    path('', include(('publications.urls', 'publications'), namespace='publications')),
     path(
         "sitemap.xml",
         sitemaps_views.index,
@@ -40,16 +41,13 @@ urlpatterns = [
         name="django.contrib.sitemaps.views.sitemap",
     ),
     re_path(r'^robots.txt', RobotsView.as_view(), name="robots_file"),
-    ]
+]
 
-# https://stackoverflow.com/a/18272203/261210
+# Context processor for the site
 from django.contrib.sites.shortcuts import get_current_site
 from django.utils.functional import SimpleLazyObject
 
 def site(request):
     protocol = 'https' if request.is_secure() else 'http'
     site = SimpleLazyObject(lambda: "{0}://{1}".format(protocol, get_current_site(request)))
-    
-    return {
-        'site': site,
-    }
+    return {'site': site}
