@@ -17,6 +17,8 @@ from .models import EmailLog
 from datetime import datetime, timedelta
 from django_q.tasks import schedule
 from django_q.models import Schedule
+from django.core.cache import cache
+from django.core.serializers import serialize
 import time  
 import calendar
 
@@ -169,3 +171,18 @@ def schedule_monthly_email_task(sent_by=None):
             next_run=next_run_date,
             kwargs={'trigger_source': 'scheduled', 'sent_by': sent_by.id if sent_by else None} 
         )
+        
+def regenerate_geojson():
+    """
+    Regenerate the GeoJSON representation of all Publication objects and update the cache.
+    
+    This function is intended to be run as a scheduled task (using Django Q, for example)
+    so that the GeoJSON file is refreshed periodically without requiring a user to trigger it.
+    """
+    # Generate GeoJSON from all Publication objects
+    geojson_data = serialize("geojson", Publication.objects.all())
+    # Store the generated data in the cache with the configured timeout
+    cache.set('geojson_file', geojson_data, timeout=settings.FILE_CACHE_TIMEOUT)
+    # Optionally, you could log the regeneration event
+    logger.info("Regenerated and cached GeoJSON file at %s", settings.FILE_CACHE_TIMEOUT)
+
