@@ -24,6 +24,7 @@ from django_currentuser.middleware import (get_current_user, get_current_authent
 from django.urls import reverse  
 from django.core.serializers import serialize
 from django.conf import settings
+from django.core.cache import cache
 
 # Import models
 from publications.models import BlockedEmail, BlockedDomain, Subscription, UserProfile, Publication
@@ -330,10 +331,16 @@ def finalize_account_deletion(request):
 @require_GET
 def download_geojson(request):
     """
-    Serializes all Publication objects into GeoJSON format
-    and returns it as a downloadable file.
+    Generate or retrieve a cached GeoJSON representation of all Publication objects,
+    and return it as a downloadable file.
     """
-    geojson_data = serialize("geojson", Publication.objects.all())
+    # Try to get the cached file
+    geojson_data = cache.get('geojson_file')
+    if not geojson_data:
+        # Generate GeoJSON data
+        geojson_data = serialize("geojson", Publication.objects.all())
+        # Cache it for a configured timeout (e.g., 6 hours)
+        cache.set('geojson_file', geojson_data, timeout=settings.FILE_CACHE_TIMEOUT)
     response = HttpResponse(geojson_data, content_type="application/json")
     response['Content-Disposition'] = 'attachment; filename="publications.geojson"'
     return response
