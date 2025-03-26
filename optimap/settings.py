@@ -330,6 +330,32 @@ IGNORABLE_404_URLS = (
     re.compile(r"^\.git"),
 )
 
+FILE_CACHE_TIMEOUT = 6 * 60 * 60  # 6 hours
+# Django Q configuration (already present, but verify it)
+Q_CLUSTER = {
+    'name': 'optimap',
+    'workers': 1,
+    'timeout': 10,
+    'retry': 20,
+    'queue_limit': 50,
+    'bulk': 10,
+    'orm': 'default',
+    'ack_failures': True,
+    'max_attempts': 5,
+    'attempt_count': 0,
+}
+# If you want to use a persistent cache for the GeoJSON file (recommended for production),
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'cache',
+    },
+    # Dummy cache for development:
+    'dummy': {
+        'BACKEND': 'django.core.cache.backends.dummy.DummyCache',
+    },
+}
+
 CSRF_TRUSTED_ORIGINS = [i.strip('[]') for i in env('CSRF_TRUSTED_ORIGINS', default='https://localhost:8000').split(',')]
 
 ADMINS = [('OPTIMAP', 'login@optimap.science')]
