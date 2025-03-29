@@ -2,7 +2,7 @@ from django.contrib import admin, messages
 from leaflet.admin import LeafletGeoAdmin
 from publications.models import Publication, BlockedEmail, BlockedDomain
 from import_export.admin import ImportExportModelAdmin
-from publications.models import EmailLog, UserProfile
+from publications.models import EmailLog, Subscription, UserProfile
 from publications.tasks import send_monthly_email, schedule_monthly_email_task
 from django.contrib.auth import get_user_model
 User = get_user_model()
@@ -36,6 +36,33 @@ def trigger_monthly_email_task(modeladmin, request, queryset):
         messages.success(request, "Monthly email task has been scheduled successfully.")
     except Exception as e:
         messages.error(request, f"Failed to schedule task: {e}")
+
+@admin.action(description="Send subscription-based emails")
+def send_subscription_emails(modeladmin, request, queryset):
+    """
+    Admin action to manually send subscription-based emails to selected users.
+    """
+    from publications.tasks import send_subscription_based_email
+
+    selected_users = queryset.filter(subscribed=True).values_list('user', flat=True)
+    if not selected_users:
+        messages.warning(request, "No active subscribers selected.")
+        return
+
+    send_subscription_based_email(sent_by=request.user, user_ids=list(selected_users))
+    messages.success(request, "Subscription-based emails have been sent.")
+
+@admin.action(description="Schedule subscription-based Email Task")
+def send_subscription_emails_scheduler(modeladmin, request, queryset):
+    """
+    Admin action to manually schedule the email task.
+    """
+    try:        
+        schedule_subscription_email_task(sent_by=request.user)  
+        messages.success(request, "Monthly email task has been scheduled successfully.")
+    except Exception as e:
+        messages.error(request, f"Failed to schedule task: {e}")
+
 
 @admin.action(description="Delete user and block email")
 def block_email(modeladmin, request, queryset):
@@ -75,14 +102,13 @@ class EmailLogAdmin(admin.ModelAdmin):
     search_fields = ("recipient_email", "subject", "sent_by__username")  
     actions = [trigger_monthly_email, trigger_monthly_email_task]  
 
+class SubscriptionAdmin(admin.ModelAdmin):
+    list_display = ("user", "region", "subscribed")
+    actions = [send_subscription_emails, send_subscription_emails_scheduler]
 
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "notify_new_manuscripts")  
     search_fields = ("user__email",)
-
-
-admin.site.register(EmailLog, EmailLogAdmin)
-admin.site.register(UserProfile, UserProfileAdmin)
 
 @admin.register(BlockedEmail)
 class BlockedEmailAdmin(admin.ModelAdmin):
@@ -99,3 +125,7 @@ class UserAdmin(admin.ModelAdmin):
     """User Admin."""
     list_display = ("username", "email", "is_active")
     actions = [block_email, block_email_and_domain]
+
+admin.site.register(EmailLog, EmailLogAdmin)
+admin.site.register(UserProfile, UserProfileAdmin)
+admin.site.register(Subscription, SubscriptionAdmin)  
