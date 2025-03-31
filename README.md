@@ -140,6 +140,9 @@ OPTIMAP_CACHE=dummy OPTIMAP_DEBUG=True python manage.py runserver
 
 # **Important:** To enable scheduled caching and other background tasks,
 # run the Django Q cluster in a separate terminal:
+
+python manage.py schedule_geojson
+
 python manage.py qcluster
 ```
 
