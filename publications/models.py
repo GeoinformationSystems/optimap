@@ -95,24 +95,25 @@ class Source(models.Model):
     harvest_interval_minutes = models.IntegerField(default=60*24*3)
     last_harvest = models.DateTimeField(auto_now_add=True,null=True)
     
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
 class Subscription(models.Model):
-    name = models.CharField(max_length=4096)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="subscriptions", null=True, blank=True)
+    name = models.CharField(max_length=4096, default="default_subscription")
     search_term = models.CharField(max_length=4096,null=True)
     timeperiod_startdate = models.DateField(null=True)
     timeperiod_enddate = models.DateField(null=True)
-    search_area = models.GeometryCollectionField(null=True, blank=True)
-    user_name = models.CharField(max_length=4096)
+    region = models.GeometryCollectionField(null=True, blank=True)
+    subscribed = models.BooleanField(default=True) 
 
     def __str__(self):
         """Return string representation."""
         return self.name
 
     class Meta:
-        ordering = ['user_name']
+        ordering = ['name']
         verbose_name = "subscription"
-
-from django.contrib.auth import get_user_model
-User = get_user_model()
 
 class EmailLog(models.Model):
     TRIGGER_CHOICES = [

@@ -31,6 +31,7 @@ urlpatterns = [
     path("logout/", views.customlogout, name="logout"),
     path("usersettings/", views.user_settings, name="usersettings"),
     path("subscriptions/", views.user_subscriptions, name="subscriptions"),
+    path("unsubscribe/", views.unsubscribe, name="unsubscribe"),
     path("addsubscriptions/", views.add_subscriptions, name="addsubscriptions"),
     path("request-delete/", views.request_delete, name="request_delete"),
     path("confirm-delete/<str:token>/", views.confirm_account_deletion, name="confirm_delete"),

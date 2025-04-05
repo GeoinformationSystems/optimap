@@ -25,7 +25,7 @@ class SubscriptionSerializer(serializers.GeoFeatureModelSerializer):
     class Meta:
         model = Subscription
         fields = ("search_term","timeperiod_startdate","timeperiod_enddate","user_name")
-        geo_field = "search_area"
+        geo_field = "region"
         auto_bbox = True
         
 class EmailChangeSerializer(serializers.ModelSerializer):  
