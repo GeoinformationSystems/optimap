@@ -37,5 +37,7 @@ urlpatterns = [
     path("confirm-delete/<str:token>/", views.confirm_account_deletion, name="confirm_delete"),
     path("finalize-delete/", views.finalize_account_deletion, name="finalize_delete"),
     path("changeuser/", views.change_useremail, name="changeuser"),
+    path('download/geojson/', views.download_geojson, name='download_geojson'),
+    path('download/geopackage/', views.download_geopackage, name='download_geopackage'),
     path("confirm-email/<str:token>/<str:email_new>/", views.confirm_email_change, name="confirm-email-change"),
 ]

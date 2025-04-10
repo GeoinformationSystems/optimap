@@ -28,6 +28,9 @@ from django_q.models import Schedule
 import time  
 import calendar
 import re
+import subprocess
+import gzip
+import os
 
 BASE_URL = settings.BASE_URL
 
@@ -38,14 +41,14 @@ def extract_geometry_from_html(content):
             try:
                 geom = json.loads(data)
                 geom_data = geom["features"][0]["geometry"]
-                # preparing geometry data in accordance to geos API fields
-                type_geom= {'type': 'GeometryCollection'}
-                geom_content = {"geometries" : [geom_data]}
+                # Prepare geometry data as a GeometryCollection
+                type_geom = {'type': 'GeometryCollection'}
+                geom_content = {"geometries": [geom_data]}
                 type_geom.update(geom_content)
-                geom_data_string= json.dumps(type_geom)
-                try :
-                    geom_object = GEOSGeometry(geom_data_string) # GeometryCollection object
-                    logging.debug('Found geometry: %s', geom_object)
+                geom_data_string = json.dumps(type_geom)
+                try:
+                    geom_object = GEOSGeometry(geom_data_string)
+                    logger.debug('Found geometry: %s', geom_object)
                     return geom_object
                 except Exception as e:
                     logger.error("Cannot create geometry from string '%s': %s", geom_data_string, e)
@@ -57,10 +60,9 @@ def extract_timeperiod_from_html(content):
     for tag in content.find_all("meta"):
         if tag.get("name", None) in ['DC.temporal', 'DC.PeriodOfTime']:
             data = tag.get("content", None)
-            period =  data.split("/")
-            logging.debug('Found time period: %s', period)
-            break;
-    # returning arrays for array field in DB
+            period = data.split("/")
+            logger.debug('Found time period: %s', period)
+            break
     return [period[0]], [period[1]]
 
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', re.IGNORECASE)
@@ -185,7 +187,6 @@ def send_monthly_email(trigger_source='manual', sent_by=None):
                 [recipient],
                 fail_silently=False,
             )
-            
             EmailLog.log_email(
                 recipient, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="success"
             )
@@ -258,7 +259,7 @@ def schedule_monthly_email_task(sent_by=None):
             schedule_type='M',
             repeats=-1,
             next_run=next_run_date,
-            kwargs={'trigger_source': 'scheduled', 'sent_by': sent_by.id if sent_by else None} 
+            kwargs={'trigger_source': 'scheduled', 'sent_by': sent_by.id if sent_by else None}
         )
         logger.info(f"Scheduled 'schedule_monthly_email_task' for {next_run_date}")
 
@@ -276,3 +277,65 @@ def schedule_subscription_email_task(sent_by=None):
         )
         logger.info(f"Scheduled 'send_subscription_based_email' for {next_run_date}")
 
+
+# ------------------------------
+# New GeoJSON/GeoPackage Cache Functions
+# ------------------------------
+
+def regenerate_geojson_cache():
+    """
+    Serializes all Publication objects into a GeoJSON FeatureCollection,
+    writes it to a file, and creates a gzipped version.
+    """
+    from django.core.serializers import serialize
+    features = []
+    geojson_str = serialize('geojson', Publication.objects.all(), geometry_field='geometry')
+    try:
+        geojson_obj = json.loads(geojson_str)
+        features = geojson_obj.get("features", [])
+    except Exception as e:
+        logger.error("Error parsing GeoJSON: %s", e)
+    
+    full_collection = {
+        "type": "FeatureCollection",
+        "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+        "features": features
+    }
+    
+    cache_dir = os.path.join(os.path.dirname(__file__), 'cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    json_path = os.path.join(cache_dir, 'geojson_cache.json')
+    with open(json_path, 'w') as f:
+        json.dump(full_collection, f)
+    
+    gzip_path = os.path.join(cache_dir, 'geojson_cache.json.gz')
+    with gzip.open(gzip_path, 'wt') as f:
+        json.dump(full_collection, f)
+    
+    logger.info("GeoJSON cache regenerated successfully.")
+    return json_path
+
+def convert_geojson_to_geopackage(geojson_path):
+    """
+    Converts the GeoJSON file at geojson_path to a GeoPackage using ogr2ogr.
+    """
+    cache_dir = os.path.join(os.path.dirname(__file__), 'cache')
+    geopackage_path = os.path.join(cache_dir, 'publications.gpkg')
+    cmd = ["ogr2ogr", "-f", "GPKG", geopackage_path, geojson_path]
+    try:
+        subprocess.check_call(cmd)
+        logger.info("GeoPackage generated at: %s", geopackage_path)
+    except subprocess.CalledProcessError as e:
+        logger.error("Error converting GeoJSON to GeoPackage: %s", e)
+        geopackage_path = None
+    return geopackage_path
+
+def regenerate_geopackage_cache():
+    """
+    Regenerates the GeoJSON cache and converts it to a GeoPackage.
+    Intended to be run on a schedule via Django Q.
+    """
+    json_path = regenerate_geojson_cache()
+    gpkg_path = convert_geojson_to_geopackage(json_path)
+    return gpkg_path
