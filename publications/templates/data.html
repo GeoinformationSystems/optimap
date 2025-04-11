@@ -4,21 +4,21 @@
 {% block title %}Data & API | {% endblock %}
 
 {% block content %}
-
 <div class="row justify-content-center">
   <div class="col-4 py-5 text-wrap">
     <h1 class="py-2">OPTIMAP Data & API Access</h1>
-
+    
     <p class="lead">
       All publication metadata published in OPTIMAP is licensed under a Creative Commons Zero 
       (<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank">CC-0</a>) license.
     </p>
-
+    
     <h2 class="py-2">API Endpoint</h2>
     <p>
-      The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>.
-      Visit the URL in your browser to get an interactive interface for exploring the API.
+      The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>. Visit the URL in your browser 
+      to get an interactive interface for exploring the API.
     </p>
+    
     <p>
       You can query all publications with the following request (using 
       <a href="https://stedolan.github.io/jq/" title="Link to jq project website"><code>jq</code></a> for formatting):
@@ -26,33 +26,34 @@
     <pre>
 curl -X GET {{ site|addstr:"/api" }}/api/publications/ | jq
     </pre>
-
+    
     <h2 class="py-2">OpenAPI Schema</h2>
     <p>
-      You can download an OpenAPI specification of the API at 
-      <b>{{ site|addstr:"/api/schema"|urlize }}</b>.
+      You can download an OpenAPI specification of the API at <b>{{ site|addstr:"/api/schema"|urlize }}</b>.
     </p>
-
+    
     <h2 class="py-2">OpenAPI User Interface</h2>
     <p>
-      Explore the API with an interactive user interface built based on the OpenAPI schema at 
-      <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.
+      Explore the API with an interactive user interface built based on the OpenAPI schema at <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.
     </p>
-
+    
     <hr>
-
+    
     <!-- New Section: File Downloads -->
-    <h2 class="py-2">File Downloads</h2>
-    <p>The following file format is available for download. File sizes are approximate:</p>
+    <h2 class="py-2">Download Publication Data</h2>
+    <p>
+      Choose your desired file format.
+    </p>
     <ul>
       <li>
-        <a href="{% url 'publications:download_geojson' %}">GeoJSON</a>
-        <span>- 2.3 MB</span>
+        <a class="btn btn-primary" href="{% url 'publications:download_geojson' %}">Download GeoJSON</a>
+        ({{ geojson_size }})
       </li>
-      <!-- Future formats can be added here -->
+      <li>
+        <a class="btn btn-primary" href="{% url 'publications:download_geopackage' %}">Download GeoPackage</a>
+        ({{ geopackage_size }})
+      </li>
     </ul>
-
   </div>
 </div>
-
 {% endblock %}

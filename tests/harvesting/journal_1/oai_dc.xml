@@ -26,6 +26,7 @@
                     <dc:type>info:eu-repo/semantics/publishedVersion</dc:type>
                     <dc:type xml:lang="de-DE">Begutachter Beitrag</dc:type>
                     <dc:identifier>http://localhost:8330/index.php/opti-geo/article/view/1</dc:identifier>
+                    <dc:identifier>10.1234/abcd.efgh</dc:identifier>
                     <dc:source xml:lang="en-US">Journal of Optimal Geolocations; 2022</dc:source>
                     <dc:coverage xml:lang="en-US">Earth, Asia, Republic of Turkey</dc:coverage>
                     <dc:rights xml:lang="de-DE">Copyright (c) 2022 Journal of Optimal Geolocations</dc:rights>

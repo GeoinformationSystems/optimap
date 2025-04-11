@@ -1,4 +1,8 @@
 helium
+<<<<<<< HEAD
 #chromedriver-autoinstaller
+=======
+>>>>>>> enhancement/Download_all_geometries_and_metadata_as_GeoJSON_61
 pyvirtualdisplay
 responses
+xmldiff

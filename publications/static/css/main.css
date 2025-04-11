@@ -9,8 +9,13 @@ html, body {
   white-space: nowrap;
 }
 
+body {
+  overflow: auto;
+}
+
 main {
   white-space: nowrap;
+  padding-bottom: 3em;
 }
 
 .navbar {

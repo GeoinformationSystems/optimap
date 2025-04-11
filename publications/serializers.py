@@ -6,6 +6,8 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 from publications.models import Publication,Subscription
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 class PublicationSerializer(serializers.GeoFeatureModelSerializer):
     """publication GeoJSON serializer."""
@@ -23,9 +25,22 @@ class SubscriptionSerializer(serializers.GeoFeatureModelSerializer):
     class Meta:
         model = Subscription
         fields = ("search_term","timeperiod_startdate","timeperiod_enddate","user_name")
-        geo_field = "search_area"
+        geo_field = "region"
         auto_bbox = True
         
+class EmailChangeSerializer(serializers.ModelSerializer):  
+    """Handles email change requests."""
+
+    class Meta:
+        model = User
+        fields = ['email']
+
+    def validate_email(self, value):
+        """Ensure the new email is not already in use."""
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("This email is already registered.")
+        return value
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
