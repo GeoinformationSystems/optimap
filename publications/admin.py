@@ -18,14 +18,16 @@ def make_draft(modeladmin, request, queryset):
 
 @admin.action(description="Trigger harvesting for selected sources")
 def trigger_harvesting_for_specific(modeladmin, request, queryset):
+    user = request.user
     for source in queryset:
-        harvest_oai_endpoint(source.id)  
+        harvest_oai_endpoint(source.id, user)  
 
 @admin.action(description="Trigger harvesting for all sources")
 def trigger_harvesting_for_all(modeladmin, request, queryset):
     all_sources = Source.objects.all()
+    user = request.user
     for source in all_sources:
-        harvest_oai_endpoint(source.id) 
+        harvest_oai_endpoint(source.id, user) 
 
 @admin.action(description="Schedule harvesting for selected sources")
 def schedule_harvesting(modeladmin, request, queryset):
@@ -113,17 +115,24 @@ def block_email_and_domain(modeladmin, request, queryset):
 @admin.register(Publication)
 class PublicationAdmin(LeafletGeoAdmin, ImportExportModelAdmin):
     """Publication Admin."""
+    list_display = ("title", "doi", "creationDate", "lastUpdate", "created_by", "updated_by", "status", "provenance", "source")
+    search_fields = ("title", "doi", "abstract", "source")
+    list_filter = ("status", "creationDate")
+    actions = [make_public, make_draft]
 
-    list_display = ("doi", "creationDate", "lastUpdate", "created_by", "updated_by", "status", "provenance")
-
-    actions = [make_public,make_draft]
+    fields = (
+        "title", "doi", "status", "source", "abstract",
+        "geometry", "timeperiod_startdate", "timeperiod_enddate",
+        "created_by", "updated_by", "provenance"
+    )
+    readonly_fields = ("created_by", "updated_by")
 
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
-    list_display = ("id", "url_field", "harvest_interval_minutes", "last_harvest")
-    list_filter = ("harvest_interval_minutes",)
-    search_fields = ("url_field",)
-    actions = [trigger_harvesting_for_specific,trigger_harvesting_for_all, schedule_harvesting]
+    list_display = ("id", "url_field", "harvest_interval_minutes", "last_harvest", "collection_name", "tags")
+    list_filter = ("harvest_interval_minutes", "collection_name")
+    search_fields = ("url_field", "collection_name", "tags")
+    actions = [trigger_harvesting_for_specific, trigger_harvesting_for_all, schedule_harvesting]
 
 @admin.register(HarvestingEvent)
 class HarvestingEventAdmin(admin.ModelAdmin):

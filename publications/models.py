@@ -114,6 +114,19 @@ class Source(models.Model):
     harvest_interval_minutes = models.IntegerField(default=60*24*3)
     last_harvest = models.DateTimeField(auto_now_add=True,null=True)
 
+    collection_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Identifier for a set or group of journals (e.g., 'Health Journals', 'TestBatch_Apr2025')."
+    )
+    tags = models.CharField(
+        max_length=1024,
+        blank=True,
+        null=True,
+        help_text="Comma-separated tags to provide additional context"
+    )
+
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         Schedule.objects.filter(name=f"Harvest Source {self.id}").delete()  # Avoid duplicates

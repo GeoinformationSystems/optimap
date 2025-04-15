@@ -8,11 +8,20 @@ from publications.models import Publication, Source, Schedule
 from django_q.tasks import async_task
 import responses
 import time
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
 
 class SimpleTest(TestCase):   
   
     def setUp(self):
         self.client = Client()
+        self.user = User.objects.create_user(
+            username="testuser", 
+            email="testuser@example.com", 
+            password="password123"
+        )
 
         results = self.client.get('/api/v1/publications/').json()['results']
         features = results.get('features', [])
@@ -95,7 +104,7 @@ class SimpleTest(TestCase):
         self.assertTrue(schedule.exists(), "Django-Q task not scheduled for source.")
 
         from publications.tasks import harvest_oai_endpoint
-        harvest_oai_endpoint(source.id)
+        harvest_oai_endpoint(source.id, self.user)
 
         publications_count = Publication.objects.count()
         self.assertGreater(publications_count, 0, "No publications were harvested.")

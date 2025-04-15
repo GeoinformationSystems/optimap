@@ -66,30 +66,36 @@ def extract_timeperiod_from_html(content):
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', re.IGNORECASE)
 
 def parse_oai_xml_and_save_publications(content, event):
+    existing_urls = set(Publication.objects.values_list('url', flat=True))
+    existing_dois = set(Publication.objects.exclude(doi__isnull=True).values_list('doi', flat=True))
+    
+    try:
+        DOMTree = xml.dom.minidom.parseString(content)
+    except Exception as e:
+        logger.error("Error parsing XML: %s", e)
+        return
 
-    DOMTree = xml.dom.minidom.parseString(content)
     collection = DOMTree.documentElement
-
     records = collection.getElementsByTagName("record")
-
+    
     if not records:
         logger.warning("No articles found in OAI-PMH response!")
         return
-
-    existing_urls = set(Publication.objects.values_list('url', flat=True))
-    existing_dois = set(Publication.objects.exclude(doi__isnull=True).values_list('doi', flat=True)) 
+    
     for record in records:
+        # Initialize defaults so variables are always defined.
+        period_start, period_end, geom_object = [], [], None
+        
         try:
             def get_text(tag_name):
                 nodes = record.getElementsByTagName(tag_name)
                 return nodes[0].firstChild.nodeValue.strip() if nodes and nodes[0].firstChild else None
-
+            
             identifier_value = get_text("dc:identifier")
             title_value = get_text("dc:title")
             abstract_text = get_text("dc:description")
             journal_value = get_text("dc:publisher")
             date_value = get_text("dc:date")
-
             doi_text = None
             doi_nodes = record.getElementsByTagName("dc:identifier")
             for node in doi_nodes:
@@ -99,72 +105,107 @@ def parse_oai_xml_and_save_publications(content, event):
                     if match:
                         doi_text = match.group(0)
                         break
-
-            if not identifier_value or not identifier_value.startswith("http"):
-                logger.warning("Skipping record with invalid URL: %s", identifier_value)
-                continue
-
+            
+            # Duplicate checking.
             if doi_text and doi_text in existing_dois:
                 logger.info("Skipping duplicate publication (DOI): %s", doi_text)
                 continue
-
             if identifier_value in existing_urls:
                 logger.info("Skipping duplicate publication (URL): %s", identifier_value)
                 continue
-
             existing_urls.add(identifier_value)
             if doi_text:
                 existing_dois.add(doi_text)
-
-            geom_object = None
-            period_start = []
-            period_end = []
-            with requests.get(identifier_value) as response:
-                soup = BeautifulSoup(response.content, "html.parser")
-                geom_object = extract_geometry_from_html(soup)
-                period_start, period_end = extract_timeperiod_from_html(soup)
-
+            
+            # Skip records without a valid URL.
+            if not identifier_value or not identifier_value.startswith("http"):
+                logger.warning("Skipping record with invalid URL: %s", identifier_value)
+                continue
+            
+            try:
+                with requests.get(identifier_value) as resp:
+                    resp.raise_for_status()
+                    soup = BeautifulSoup(resp.content, "html.parser")
+                    try:
+                        geom_object = extract_geometry_from_html(soup)
+                    except Exception as geo_err:
+                        logger.error("Geometry extraction failed for URL %s: %s", identifier_value, geo_err)
+                        geom_object = None
+                    # Extract temporal metadata.
+                    start_time, end_time = extract_timeperiod_from_html(soup)
+                    if not start_time or start_dates in ([None], [""]):
+                        start_time = []
+                    if not end_dates or end_dates in ([None], [""]):
+                        end_dates = []
+                    period_start, period_end = start_time, end_time
+            except Exception as fetch_err:
+                logger.error("Error fetching HTML for %s: %s", identifier_value, fetch_err)
+                geom_object = None
+                period_start, period_end = [], []
+            
             publication = Publication(
                 title=title_value,
                 abstract=abstract_text,
                 publicationDate=date_value,
                 url=identifier_value,
-                doi=doi_text if doi_text else None,
+                doi=doi_text,
                 source=journal_value,
                 geometry=geom_object,
                 timeperiod_startdate=period_start,
-                timeperiod_enddate=period_end
+                timeperiod_enddate=period_end,
+                job=event
             )
             publication.save()
-            print("Saved new publication: %s", identifier_value)
-
         except Exception as e:
-            print("Error parsing record: %s", str(e))
+            logger.error("Error parsing record: %s", e)
             continue
 
-def harvest_oai_endpoint(source_id):
+def harvest_oai_endpoint(source_id, user=None):
     source = Source.objects.get(id=source_id)
     event = HarvestingEvent.objects.create(source=source, status="in_progress")
 
-    username = os.getenv("OPTIMAP_OAI_USERNAME")
-    password = os.getenv("OPTIMAP_OAI_PASSWORD")
-
     try:
-        with requests.Session() as session:
-            response = session.get(source.url_field, auth=HTTPBasicAuth(username, password))
-            response.raise_for_status() 
-            parse_oai_xml_and_save_publications(response.content, event)
-
-            event.status = "completed"
-            event.completed_at = timezone.now()
-            event.save()
-            print("Harvesting completed for", source.url_field)
-
-    except requests.exceptions.RequestException as e:
-        print("Error harvesting from", source.url_field, ":", e)
-        event.status = "failed"
-        event.log = str(e)
+        response = requests.get(source.url_field)
+        response.raise_for_status()
+        
+        parse_oai_xml_and_save_publications(response.content, event)
+        
+        event.status = "completed"
+        event.completed_at = timezone.now()
         event.save()
+        
+        new_count = Publication.objects.filter(job=event).count()
+        spatial_count = Publication.objects.filter(job=event).exclude(geometry__isnull=True).count()
+        temporal_count = Publication.objects.filter(job=event).exclude(timeperiod_startdate=[]).count()
+        
+        subject = f"Harvesting Completed for {source.collection_name}"
+        completed_str = event.completed_at.strftime('%Y-%m-%d %H:%M:%S') if event.completed_at else 'N/A'
+        message = (
+            f"Harvesting job details:\n\n"
+            f"Number of added articles: {new_count}\n"
+            f"Number of articles with spatial metadata: {spatial_count}\n"
+            f"Number of articles with temporal metadata: {temporal_count}\n"
+            f"Collection used: {source.collection_name or 'N/A'}\n"
+            f"Journal: {source.url_field}\n"
+            f"Job started at: {event.started_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Job completed at: {completed_str}\n"
+        )
+        
+        if user and user.email:
+            send_mail(
+                subject,
+                message,
+                settings.EMAIL_HOST_USER,
+                [user.email],
+                fail_silently=False,
+            )
+    
+    except Exception as e:
+        logger.error("Harvesting failed for source %s: %s", source.url_field, str(e))
+        event.status = "failed"
+        event.completed_at = timezone.now()
+        event.save()
+
 def send_monthly_email(trigger_source='manual', sent_by=None):
     recipients = User.objects.filter(userprofile__notify_new_manuscripts=True).values_list('email', flat=True)
     last_month = now().replace(day=1) - timedelta(days=1)
