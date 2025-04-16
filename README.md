@@ -236,23 +236,6 @@ docker-compose run web python manage.py createsuperuser
 
 This will run the same process as above but within the Docker environment. Ensure the container is running and accessible before executing this command
 
-## Block Emails/Domains
-
-### What It Does
-
-- Blocks specific emails and entire domains from registering.
-- Prevents login attempts from blocked users.
-- Admin can delete users and instantly block their email/domain.
-
-### How to Use in Django Admin
-
-1. **Manually Add Blocked Emails/Domains**
-   - Go to `/admin/`
-   - Add emails in **Blocked Emails** or domains in **Blocked Domains**.
-2. **Block Users via Admin Action**
-   - Go to `/admin/auth/user/`
-   - Select users → Choose **"Delete user and block email/domain"** → Click **Go**.
-
 ### Run tests
 
 See <https://docs.djangoproject.com/en/4.1/topics/testing/overview/> for testing Django apps.
@@ -310,6 +293,19 @@ See also documentation at <https://code.visualstudio.com/docs/python/tutorial-dj
 
 - If you get a message during login that there is an issue with the CSRF token, e.g. `WARNING:django.security.csrf:Forbidden (CSRF token from POST incorrect.): /loginres/` in the log and also i nthe UI, then switch to using `localhost:8000` as the domain, not the localhost IP used in the examples in this README file.
 
+## Contributing
+
+_All contributions are welcome!_
+We appreciate any feedback, suggestions, or code contributions to improve the project.
+Please follow the [contribution guidelines](CONTRIBUTING.md) for more details.
+
+## Changelog
+
+We operate a [changelog](CHANGELOG.md) to keep track of changes and updates to the project.
+The changelog follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and is versioned according to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+The version is managed in `optimap/__init__.py`.
+
 ### Design colours and logos
 
 Optimeta colour = _primary colour_: #158F9B
@@ -324,7 +320,26 @@ The **logos** and favicon are in the repository in the folder [`publications/sta
 
 ## Deploy
 
-Deploy using docker-compose or see [`fly.io.md`](fly.io.md) for notes on deploying to Fly.io.
+Deploy using `docker-compose` or see [`fly.io.md`](fly.io.md) for notes on deploying to Fly.io.
+
+## Operation
+
+### Block Emails/Domains
+
+#### What It Does
+
+- Blocks specific emails and entire domains from registering.
+- Prevents login attempts from blocked users.
+- Admin can delete users and instantly block their email/domain.
+
+#### How to Use in Django Admin
+
+1. **Manually Add Blocked Emails/Domains**
+   - Go to `/admin/`
+   - Add emails in **Blocked Emails** or domains in **Blocked Domains**.
+2. **Block Users via Admin Action**
+   - Go to `/admin/auth/user/`
+   - Select users → Choose **"Delete user and block email/domain"** → Click **Go**.
 
 ## License
 

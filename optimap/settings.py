@@ -226,6 +226,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'optimap.urls.site',
+                'optimap.context_processors.get_version',
             ],
         },
     },
