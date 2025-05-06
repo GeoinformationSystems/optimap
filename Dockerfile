@@ -21,7 +21,8 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get install -y -qq software-properties-common && \
     add-apt-repository ppa:ubuntugis/ppa && \
-    apt-get install -y -qq gdal-bin libgdal-dev python3-gdal
+
+RUN pip install gdal=="$(gdal-config --version).*"
 
 RUN mkdir -p /code
 

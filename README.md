@@ -111,10 +111,13 @@ source .venv/bin/activate
 # Confirm Python path
 which python
 
-# Instal GDAL and the Python GDAL bindings, see Dockerfile for example on Ubuntu
+# Install GDAL
 gdalinfo --version
 
-# Install non-GDAL Python dependencies
+# Install gdal Pyhton library matching your GDAL version
+pip install gdal=="$(gdal-config --version).*"
+
+# Install Python dependencies
 pip install -r requirements.txt
 
 # create local DB container (once)

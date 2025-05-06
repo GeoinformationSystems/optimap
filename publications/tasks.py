@@ -1,36 +1,36 @@
 import logging
 logger = logging.getLogger(__name__)
 
-from django_q.models import Schedule
-from publications.models import Publication, HarvestingEvent, Source
-from bs4 import BeautifulSoup
-import json
-import xml.dom.minidom
-from django.contrib.gis.geos import GEOSGeometry
-import requests
-from django.core.mail import send_mail, EmailMessage
-from django.utils import timezone 
-from requests.auth import HTTPBasicAuth
 import os
+import json
+import subprocess
+import gzip
+import re
+import tempfile
+import time
+import calendar
+from datetime import datetime, timedelta
+import xml.dom.minidom
+import requests
+from bs4 import BeautifulSoup
+from requests.auth import HTTPBasicAuth
+from urllib.parse import quote
 from django.conf import settings
-from django.utils.timezone import now
+from django.core.mail import send_mail, EmailMessage
+from django.core.serializers import serialize
+from django.contrib.gis.geos import GEOSGeometry, GeometryCollection
+from django.utils import timezone
+from publications.models import Publication, HarvestingEvent, Source
+from .models import EmailLog, Subscription
 from django.contrib.auth import get_user_model
 User = get_user_model()
-from .models import EmailLog, Subscription
-from datetime import datetime, timedelta
 from django.urls import reverse
 from urllib.parse import quote
-from datetime import datetime
-from django_q.tasks import schedule
-from django.utils import timezone 
 from django_q.tasks import schedule
 from django_q.models import Schedule
-import time  
-import calendar
-import re
-from django.contrib.gis.geos import GeometryCollection
 
 BASE_URL = settings.BASE_URL
+DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', re.IGNORECASE)
 
 def extract_geometry_from_html(content):
     for tag in content.find_all("meta"):
@@ -211,7 +211,7 @@ def harvest_oai_endpoint(source_id, user=None):
 
 def send_monthly_email(trigger_source='manual', sent_by=None):
     recipients = User.objects.filter(userprofile__notify_new_manuscripts=True).values_list('email', flat=True)
-    last_month = now().replace(day=1) - timedelta(days=1)
+    last_month = timezone.now().replace(day=1) - timedelta(days=1)
     new_manuscripts = Publication.objects.filter(creationDate__month=last_month.month)
 
     if not recipients.exists() or not new_manuscripts.exists():
@@ -319,4 +319,46 @@ def schedule_subscription_email_task(sent_by=None):
             kwargs={'trigger_source': 'scheduled', 'sent_by': sent_by.id if sent_by else None} 
         )
         logger.info(f"Scheduled 'send_subscription_based_email' for {next_run_date}")
+        
+def regenerate_geojson_cache():
+    cache_dir = os.path.join(tempfile.gettempdir(), "optimap_cache")
+    os.makedirs(cache_dir, exist_ok=True)
 
+    json_path = os.path.join(cache_dir, 'geojson_cache.json')
+    with open(json_path, 'w') as f:
+        serialize(
+            'geojson',
+            Publication.objects.filter(status="p"),
+            geometry_field='geometry',
+            srid=4326,
+            stream=f
+        )
+
+    gzip_path = json_path + '.gz'
+    with open(json_path, 'rb') as fin, gzip.open(gzip_path, 'wb') as fout:
+        fout.writelines(fin)
+
+    size = os.path.getsize(json_path)
+    logger.info("Cached GeoJSON at %s (%d bytes), gzipped at %s", json_path, size, gzip_path)
+    return json_path
+
+def convert_geojson_to_geopackage(geojson_path):
+    cache_dir = os.path.dirname(geojson_path)
+    gpkg_path = os.path.join(cache_dir, 'publications.gpkg')
+    try:
+        output = subprocess.check_output(
+            ["ogr2ogr", "-f", "GPKG", gpkg_path, geojson_path],
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        logger.info("ogr2ogr output:\n%s", output)
+        return gpkg_path
+    except subprocess.CalledProcessError as e:
+        return None
+        # on success, return the filename so callers can stream it or inspect it
+    return gpkg_path
+
+
+def regenerate_geopackage_cache():
+    geojson_path = regenerate_geojson_cache()
+    return convert_geojson_to_geopackage(geojson_path)

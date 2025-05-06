@@ -5,7 +5,6 @@ from django.shortcuts import redirect
 from publications import views
 from .feeds import GeoFeed
 from django.views.generic import RedirectView
-
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView
 
 app_name = "optimap"
@@ -18,7 +17,7 @@ urlpatterns = [
     path("api/v1", lambda request: redirect('/api/v1/', permanent=False)),
     path("api/v1/", include("publications.api")),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/schema/ui/sitemap', SpectacularRedocView.as_view(url_name='optimap:schema'), name='redoc'),
+    path('api/schema/ui/sitemap',SpectacularRedocView.as_view(url_name='optimap:schema'),name='redoc'),
     path("data/", views.data, name="data"),
     path('feed/georss/', GeoFeed(feed_type_variant="georss"), name='georss_feed'),
     path('feed/geoatom/', GeoFeed(feed_type_variant="geoatom"), name='geoatom_feed'),
@@ -38,4 +37,6 @@ urlpatterns = [
     path("finalize-delete/", views.finalize_account_deletion, name="finalize_delete"),
     path("changeuser/", views.change_useremail, name="changeuser"),
     path("confirm-email/<str:token>/<str:email_new>/", views.confirm_email_change, name="confirm-email-change"),
+    path('download/geojson/', views.download_geojson, name='download_geojson'),
+    path('download/geopackage/', views.download_geopackage, name='download_geopackage'),
 ]
