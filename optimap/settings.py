@@ -191,6 +191,10 @@ BASE_URL = env("BASE_URL", default="http://127.0.0.1:8000")
 OAI_USERNAME = env("OPTIMAP_OAI_USERNAME", default="")
 OAI_PASSWORD = env("OPTIMAP_OAI_PASSWORD", default="")
 EMAIL_SEND_DELAY = 2
+WIKIBASE_API_URL = env("WIKIBASE_API_URL")
+WIKIBASE_USERNAME = env("WIKIBASE_USERNAME")
+WIKIBASE_PASSWORD = env("WIKIBASE_PASSWORD")
+
 
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',
