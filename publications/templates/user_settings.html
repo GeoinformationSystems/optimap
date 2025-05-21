@@ -190,7 +190,7 @@
                     </button>
                   </div>
                   <div class="modal-body">
-                    <p>Do you really want to delete this account ?</p>
+                    <p class="text-wrap text-break">Do you really want to delete this account? A confirmation email is sent to you after clicking the Delete button below.</p>
                   </div>
                   <div class="modal-footer">
                     <form
@@ -200,7 +200,7 @@
                       {% csrf_token %}
                       <button
                         type="submit"
-                        class="btn btn-primary"
+                        class="btn btn-outline-danger"
                         name="dltbutton"
                       >
                         Delete
@@ -208,7 +208,7 @@
                     </form>
                     <button
                       type="button"
-                      class="btn btn-secondary"
+                      class="btn btn-primary"
                       data-dismiss="modal"
                     >
                       Close

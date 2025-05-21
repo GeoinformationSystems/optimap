@@ -11,14 +11,14 @@
     <p class="lead">OPTIMAP does not collect or log your personal data. We only store your email to identify your user
       account and minimal metadata, such as the date of registration and the last login, to identify and handle stale accounts.</p>
 
-    <p>The address of the website is {{ site | urlize }}.</p>
+    <p>You can use OPTIMAP fully anonymously by using a public inbox, such as <a href="https://www.mailinator.com/" title="Link to Mailinator">Mailinator</a>.</p>
 
-    <p>This website does not use any cookies to track users, with the exception of the login status, to which users
+    <p>This website does not use any cookies to track users or any third-party tracking services (such as Google Analytics or similar), with the exception of the login status, to which users
       provide implicit concent by opening an account on the website.</p>
 
     <p>This website utilizes map services provided by the OpenStreetMap Foundation, St John's Innovation Centre, Cowley
       Road, Cambridge, CB4 0WS, United Kingdom (short OSMF). Your Internet browser or application will connect to
-      servers operated by the OSMF located in the United Kingdom and in other countries. The operator of this site has
+      servers operated by the OSMF located in the United login and in other countries. The operator of this site has
       no control over such connections and processing of your data by the OSMF. You can find more information on the
       processing of user data by the OSMF in the <a href="https://wiki.osmfoundation.org/wiki/Privacy_Policy">OSMF
         privacy policy</a>.
@@ -26,9 +26,14 @@
       of displaying the map functions to the users of the website for interactive exploration of the presented datasets.
     </p>
 
+    <p>You can <strong>delete</strong> your account yourself after logging in (Settings > Delete account), which will deactivate all notifications and feeds.
+      Stale accounts that have not been used in over a year are automatically deleted after a final warning email.</p>
+
     <h1 class="py-2">Notice of liability</h1>
     <p>Although we check the content carefully, we cannot accept responsibility for the content of external links. The
       linked sites' carriers are responsible for their sites' content.</p>
+
+    <p>The address of the website is {{ site | urlize }}.</p>
 
     {% include "imprint.html" %}
   </div>

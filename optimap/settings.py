@@ -141,14 +141,13 @@ SPECTACULAR_SETTINGS = {
 Q_CLUSTER = {
     'name': 'optimap',
     'workers': 1,
-    'timeout': 10,
-    'retry': 20,
+    'timeout': 60 * 10, # seconds, must be less than retry
+    'retry': 60 * 11,
+    'save_limit': 0, # unlimited
     'queue_limit': 50,
     'bulk': 10,
     'orm': 'default',
-    'ack_failures': True,
-    'max_attempts': 5,
-    'attempt_count': 0,
+    'max_attempts': 5
 }
 
 CACHES = {

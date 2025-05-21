@@ -45,9 +45,3 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "email"] 
-
-    def to_representation(self, instance):
-        """Ensure deleted users are excluded from serialization."""
-        if instance.deleted:  
-            return None 
-        return super().to_representation(instance)

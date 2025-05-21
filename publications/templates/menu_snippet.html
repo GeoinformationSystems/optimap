@@ -5,17 +5,14 @@
     id="navbarDarkDropdown1"
     role="button"
     data-toggle="dropdown"
-    aria-expanded="false"
-  >
+    aria-expanded="false">
     <i class="fa-solid fa-circle-user fa-3x"></i>
   </a>
   <ul
     class="dropdown-menu dropdown-menu-right"
-    aria-labelledby="navbarDarkDropdown1"
-  >
-    <span class="dropdown-item-text"
-      >New around here? Please login to create a new account.</span
-    >
+    aria-labelledby="navbarDarkDropdown1">
+    <span class="dropdown-item-text">New around here? Please login to create a new account.</span>
+    <span class="dropdown-item-text">Want to stay anonymous? Use a public inbox like <a href="https://www.mailinator.com/">Mailinator</a> or check out our <a href="{% url 'optimap:privacy' %}">privacy information</a>.</span>
     <div class="dropdown-divider"></div>
     <li class="px-3 py-2">
       <form class="form" method="POST" action="{% url 'optimap:loginres' %}">

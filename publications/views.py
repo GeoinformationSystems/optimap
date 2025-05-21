@@ -259,14 +259,7 @@ def authenticate_via_magic_link(request, token):
         })
     user = User.objects.filter(email=email).first()
     if user:
-        if user.deleted:
-            user.deleted = False
-            user.deleted_at = None
-            user.is_active = True  
-            user.save()
-            is_new = False  
-        else:
-            is_new = False  
+        is_new = False  
     else:
         user = User.objects.create_user(username=email, email=email)
         is_new = True  
@@ -503,13 +496,8 @@ def finalize_account_deletion(request):
         messages.error(request, "You are not authorized to delete this account.")
         return redirect(reverse('optimap:main'))
     user = get_object_or_404(User, id=user_id)
-    if user.deleted:
-        messages.warning(request, "This account has already been deleted.")
-        return redirect(reverse('optimap:usersettings'))
     try:
-        user.deleted = True
-        user.deleted_at = now()
-        user.save()
+        user.delete()
         logout(request)
         messages.success(request, "Your account has been successfully deleted.")
         return redirect(reverse('optimap:main'))

@@ -54,8 +54,8 @@ class AccountDeletionUITest(unittest.TestCase):
         click("Permanently Delete Account")
         sleep(3)
 
-        self.user.refresh_from_db()
-        assert self.user.deleted, "User deletion flag was not updated in the database!"
+        user = User.objects.filter(email=self.email).first()
+        self.assertIsNone(user, "User was not deleted from the database!")
 
     def tearDown(self):
         """Close browser after test"""

@@ -21,7 +21,6 @@ class SimpleTest(unittest.TestCase):
 
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
-        self.assertFalse(user.deleted)
 
         # check the default fields which we do not want to use are emptly
         self.assertEqual(user.first_name, "", "first_name of user must not be set")
