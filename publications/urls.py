@@ -25,6 +25,8 @@ urlpatterns = [
     path('feed/', RedirectView.as_view(pattern_name='optimap:georss_feed', permanent=True)),
     path("loginres/", views.loginres, name="loginres"),
     path("privacy/", views.privacy, name="privacy"),
+    path("contact/", RedirectView.as_view(pattern_name='optimap:privacy', permanent=True)),
+    path("imprint/", RedirectView.as_view(pattern_name='optimap:privacy', permanent=True)),
     path("loginconfirm/", views.Confirmationlogin, name="loginconfirm"),
     path("login/<str:token>", views.authenticate_via_magic_link, name="magic_link"),
     path("logout/", views.customlogout, name="logout"),

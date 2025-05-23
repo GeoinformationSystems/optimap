@@ -24,7 +24,7 @@ class SubscriptionSerializer(serializers.GeoFeatureModelSerializer):
 
     class Meta:
         model = Subscription
-        fields = ("search_term","timeperiod_startdate","timeperiod_enddate","user_name")
+        fields = ("search_term","timeperiod_startdate","timeperiod_enddate","user")
         geo_field = "region"
         auto_bbox = True
         
@@ -45,9 +45,3 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "email"] 
-
-    def to_representation(self, instance):
-        """Ensure deleted users are excluded from serialization."""
-        if instance.deleted:  
-            return None 
-        return super().to_representation(instance)

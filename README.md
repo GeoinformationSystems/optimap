@@ -29,37 +29,38 @@ A complete list of existing parameters is provided in the file `optimap/.env.exa
 
 ## Run with Docker
 
-The project is containerized using Docker, with services defined in `docker-compose.yml`. To start all services, run:
+The project is containerized using Docker, with services defined in `docker-compose.(deploy.)yml`. To start all services, run:
 
 ```bash
 docker compose up
+
+docker compose run --entrypoint python app manage.py loaddata fixtures/test_data.json
 ```
 
-### Initial Setup
-
-After starting the containers, apply database migrations:
+The database migrations are applied as part of the startup script, see file `etc/manage-and-run.sh`.
+You can still run the commands below manually if need be, e.g., during development.
 
 ```bash
-# run migrations, in the directory where docker-compose is to resolve the name "web"
-docker compose run app python manage.py makemigrations # should not detect and changes, otherwise your local config might be outdated
-docker compose run app python manage.py migrate
-docker compose run app python manage.py collectstatic --noinput
-docker compose run app python manage.py loaddata fixtures/test_data.json
+docker compose run --entrypoint python app manage.py makemigrations # should not detect and changes, otherwise your local config might be outdated
+docker compose run --entrypoint python app manage.py migrate
+docker compose run --entrypoint python app manage.py collectstatic --noinput
 ```
 
 Now open a browser at <http://localhost:80/>.
 
-#### Services Overview
+### Services Overview
 
 - db: Runs a PostgreSQL database with PostGIS extensions. Data is persisted in a Docker volume named db_data.
 - app: Our primary Django web application.
 - webserver: An Nginx server for serving static files and test files.
 
-#### Ports
+### Ports
 
-- 5434: Database (PostgreSQL/PostGIS)
-- 8000: App (Django server)
-- 8080: Webserver (Nginx)
+Not all of these ports are exposed by default, but they are available for local development - just uncomment the matching lines in the `docker-compose.yml` file.
+
+- `5432`: Database (PostgreSQL/PostGIS)
+- `8000`: App (Django server)
+- `80`: Webserver (Nginx)
 
 ## Development
 
@@ -136,6 +137,9 @@ python manage.py createcachetable
 
 # Collect static files
 python manage.py collectstatic --noinput
+
+# If you need to run tasks (harvesting, data export) then start a cluster in a separate shell
+python manage.py qcluster
 
 # Start the Django development server
 python manage.py runserver
@@ -256,7 +260,7 @@ python manage.py test tests
 python -Wa manage.py test
 
 # configure logging level for cleaner test progress output
-OPTIMAP_LOGGING_CONSOLE_LEVEL=WARNING python manage.py test tests
+OPTIMAP_LOGGING_LEVEL=WARNING python manage.py test tests
 
 # running UI tests needs either compose configuration or a manage.py runserver in a seperate shell
 docker-compose up --build
@@ -309,7 +313,7 @@ The changelog follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 The version is managed in `optimap/__init__.py`.
 
-### Design colours and logos
+## Design colours and logos
 
 Optimeta colour = _primary colour_: #158F9B
 
@@ -323,7 +327,7 @@ The **logos** and favicon are in the repository in the folder [`publications/sta
 
 ## Deploy
 
-Deploy using `docker-compose` or see [`fly.io.md`](fly.io.md) for notes on deploying to Fly.io.
+~~Deploy using `docker-compose` or see [`fly.io.md`](fly.io.md) for notes on deploying to Fly.io.~~
 
 ## Operation
 
@@ -343,6 +347,32 @@ Deploy using `docker-compose` or see [`fly.io.md`](fly.io.md) for notes on deplo
 2. **Block Users via Admin Action**
    - Go to `/admin/auth/user/`
    - Select users → Choose **"Delete user and block email/domain"** → Click **Go**.
+
+### Tasks
+
+We use [Django Q2](https://django-q2.readthedocs.io/) for scheduling (repeated) tasks.
+
+#### Run the cluster
+
+```bash
+python manage.py qcluster
+```
+
+#### Monitor
+
+Details: <https://django-q2.readthedocs.io/en/master/monitor.html>
+
+tl;dr:
+
+```bash
+python manage.py qmonitorq
+
+python manage.py qinfo
+```
+
+### Trigger creation of data export files
+
+TODO
 
 ## License
 

@@ -133,7 +133,7 @@ geodjango/
 
 tests-ui/screenshots/
 
-static/
+/static/
 
 # nano's edit files on the server
 *.swp

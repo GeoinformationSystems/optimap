@@ -186,6 +186,20 @@ fly proxy 15432:5432 -a optimap-db
 
 Connect to database locally at port `15432`, e.g., with pgAdmin.
 
+## Get a shell in the app container
+
+```bash
+flyctl --app optimap console
+```
+
+Inspect the settings,  load test data, etc.
+
+```bash
+python manage.py loaddata fixtures/test_data.json
+
+python manage.py diffsettings
+```
+
 ## Disable the app
 
 For example, when you want to manipulate the database without any open connections:

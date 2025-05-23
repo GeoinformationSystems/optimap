@@ -21,5 +21,5 @@ class SubscriptionViewset(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = Subscription.objects.filter(user_name=user)
+        queryset = Subscription.objects.filter(user=user)
         return queryset

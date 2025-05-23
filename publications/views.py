@@ -38,6 +38,7 @@ LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
 EMAIL_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 ACCOUNT_DELETE_TOKEN_TIMEOUT_SECONDS = 10 * 60
 USER_DELETE_TOKEN_PREFIX = "user_delete_token"
+EMAIL_CONFIRMATION_TOKEN_PREFIX = "email_confirmation_"
 
 # ------------------------------
 # Download Endpoints
@@ -138,14 +139,14 @@ def loginres(request):
             'error': {
                 'class': 'danger',
                 'title': 'Login failed!',
-                'text': 'You attempted to login using an email that is blocked. Please contact support for assistance.'
-            }
+                'text': f"You attempted to login using an email that is blocked. Please contact support for assistance: <a href=\"{request.site.domain}/contact\">{request.site.domain}/contact</a>"
+                }
         })
-
-    subject = 'OPTIMAP Login'
-    link = get_login_link(request, email)
-    valid = floor(LOGIN_TOKEN_TIMEOUT_SECONDS / 60)
-    body = f"""Hello {email} !
+    else:
+        subject = 'OPTIMAP Login'
+        link = get_login_link(request, email)
+        valid = floor(LOGIN_TOKEN_TIMEOUT_SECONDS / 60)
+        body = f"""Hello {email} !
 
 You requested that we send you a link to log in to OPTIMAP at {request.site.domain}:
 
@@ -154,36 +155,41 @@ You requested that we send you a link to log in to OPTIMAP at {request.site.doma
 Please click on the link to log in.
 The link is valid for {valid} minutes.
 """
-    logger.info('Login process started for user %s', email)
-    try:
-        email_message = EmailMessage(
-            subject=subject,
-            body=body,
-            from_email=settings.EMAIL_HOST_USER,
-            to=[email],
-            headers={'OPTIMAP': request.site.domain}
-        )
-        result = email_message.send()
-        logger.info('%s sent login email to %s with the result: %s', settings.EMAIL_HOST_USER, email_message.recipients(), result)
-        if str(get_connection().__class__.__module__).endswith("smtp"):
-            with imaplib.IMAP4_SSL(settings.EMAIL_HOST_IMAP, port=settings.EMAIL_PORT_IMAP) as imap:
-                message = str(email_message.message()).encode()
-                imap.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
-                folder = settings.EMAIL_IMAP_SENT_FOLDER
-                imap.append(folder, '\\Seen', imaplib.Time2Internaldate(time.time()), message)
-                logger.debug('Saved email to IMAP folder {folder}')
-        return render(request, 'login_response.html', {'email': email, 'valid_minutes': valid})
-    except Exception as ex:
-        logger.exception('Error sending login email to %s from %s', email, settings.EMAIL_HOST_USER)
-        logger.error(ex)
-        return render(request, "error.html", {
-            'error': {
-                'class': 'danger',
-                'title': 'Login failed!',
-                'text': 'Error sending the login email. Please try again or contact us!'
-            }
-        })
+        logger.info('Login process started for user %s', email)
+        try:
+            email_message = EmailMessage(
+                subject=subject,
+                body=body,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[email],
+                headers={'OPTIMAP': request.site.domain}
+            )
+            result = email_message.send()
+            logger.info('%s sent login email to %s with the result: %s', settings.EMAIL_HOST_USER, email_message.recipients(), result)
+        except Exception as ex:
+            logger.exception('Error sending login email to %s from %s', email, settings.EMAIL_HOST_USER)
+            logger.error(ex)
+            return render(request, "error.html", {
+                'error': {
+                    'class': 'danger',
+                    'title': 'Login failed!',
+                    'text': 'Error sending the login email. Please try again or contact us!'
+                }
+            })
+        
+        try:
+            if str(get_connection().__class__.__module__).endswith("smtp"):
+                with imaplib.IMAP4_SSL(settings.EMAIL_HOST_IMAP, port=settings.EMAIL_PORT_IMAP) as imap:
+                    message = str(email_message.message()).encode()
+                    imap.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
+                    folder = settings.EMAIL_IMAP_SENT_FOLDER
+                    imap.append('"{folder}"', '\\Seen', imaplib.Time2Internaldate(time.time()), str(message).encode('utf-8'))
+                    logger.debug('Saved email to IMAP folder "%s"', folder)
+        except Exception as ex:
+            logger.exception('Error saving sent email to %s for %s', email, settings.EMAIL_HOST_USER)
+            logger.error(ex)
 
+        return render(request, 'login_response.html', {'email': email, 'valid_minutes': valid})
 
 def privacy(request):
     return render(request, 'privacy.html')
@@ -259,19 +265,11 @@ def authenticate_via_magic_link(request, token):
         })
     user = User.objects.filter(email=email).first()
     if user:
-        if user.deleted:
-            user.deleted = False
-            user.deleted_at = None
-            user.is_active = True  
-            user.save()
-            is_new = False  
-        else:
-            is_new = False  
+        is_new = False  
     else:
         user = User.objects.create_user(username=email, email=email)
         is_new = True  
     login_user(request, user)
-    cache.delete(token)
     return render(request, "confirmation_login.html", {'is_new': is_new})
 
 @login_required
@@ -375,7 +373,7 @@ def change_useremail(request):
         return render(request, 'changeuser.html')
     token = secrets.token_urlsafe(32)
     cache.set(
-        f"email_confirmation_{email_new}",
+        f"{EMAIL_CONFIRMATION_TOKEN_PREFIX}_{email_new}",
         {"token": token, "old_email": request.user.email}, 
         timeout=EMAIL_CONFIRMATION_TIMEOUT_SECONDS,
     )
@@ -400,7 +398,7 @@ Thank you for using OPTIMAP!
     return render(request, 'changeuser.html')
 
 def confirm_email_change(request, token, email_new):
-    cached_data = cache.get(f"email_confirmation_{email_new}")
+    cached_data = cache.get(f"{EMAIL_CONFIRMATION_TOKEN_PREFIX}_{email_new}")
     if not cached_data:
         messages.error(request, "Invalid or expired confirmation link.")
         return HttpResponseRedirect("/")
@@ -503,13 +501,8 @@ def finalize_account_deletion(request):
         messages.error(request, "You are not authorized to delete this account.")
         return redirect(reverse('optimap:main'))
     user = get_object_or_404(User, id=user_id)
-    if user.deleted:
-        messages.warning(request, "This account has already been deleted.")
-        return redirect(reverse('optimap:usersettings'))
     try:
-        user.deleted = True
-        user.deleted_at = now()
-        user.save()
+        user.delete()
         logout(request)
         messages.success(request, "Your account has been successfully deleted.")
         return redirect(reverse('optimap:main'))

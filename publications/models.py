@@ -22,25 +22,8 @@ STATUS_CHOICES = (
 )
 
 class CustomUser(AbstractUser):
-    deleted = models.BooleanField(default=False)
-    deleted_at = models.DateTimeField(null=True, blank=True)
     groups = models.ManyToManyField(Group, related_name="publications_users", blank=True)
     user_permissions = models.ManyToManyField(Permission, related_name="publications_users_permissions", blank=True)
-
-    def soft_delete(self):
-        """Marks the user as deleted instead of removing from the database."""
-        self.deleted = True
-        self.deleted_at = now()
-        self.save()
-        logger.info(f"User {self.username} (ID: {self.id}) was soft deleted at {self.deleted_at}")
-
-    
-    def restore(self):
-        """Restores a previously deleted user."""
-        self.deleted = False
-        self.deleted_at = None
-        self.save()
-        logger.info(f"User {self.username} (ID: {self.id}) was restored.")
 
 class Publication(models.Model):
     # required fields
