@@ -5,22 +5,25 @@ services:
       POSTGRES_DB: optimap
       POSTGRES_USER: optimap
       POSTGRES_PASSWORD: optimap
+      #POSTGRES_PASSWORD_FILE: database_password
     ports:
       - "5434:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - optimap-volume:/var/lib/postgresql/data
+    #secrets:
+    #  - database_password
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
+      #see local .env file on the server
       DATABASE_URL: postgis://optimap:optimap@db:5432/optimap?sslmode=disable
-      OPTIMAP_CACHE: "dummy"
-      OPTIMAP_DEBUG: "True"
+      OPTIMAP_DEBUG: "False"
     volumes:
-      - ".:/code:ro"
-      - "./fixtures:/fixtures:ro"
+      - ".:/code" # need to run collectstatic
+      - "./fixtures:/fixtures"
     ports:
       - "8000:8000"
     depends_on:
@@ -29,12 +32,16 @@ services:
   webserver:
     image: nginx:1.27-alpine
     volumes:
-      - "./etc/nginx.conf:/etc/nginx/nginx.conf:ro"
+      - "./etc/nginx.deploy.conf:/etc/nginx/nginx.conf:ro"
     ports:
       - "80:80"
     depends_on:
       - app
 
 volumes:
-  db_data:
+  optimap-volume:
     driver: local
+
+#secrets:
+#  database_password:
+#    file: /var/www/komet/database_password.secret

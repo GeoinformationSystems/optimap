@@ -1,32 +1,81 @@
 {% extends "main.html" %}
-
-{% load optimap_extras %}
-
-{% block title %}API | {% endblock %}
+{% load optimap_extras humanize %}
+{% block title %}Data &amp; API | {% endblock %}
 
 {% block content %}
-
 <div class="row justify-content-center">
-  <div class="col-4 py-5 text-wrap">
-    <h1 class="py-2">OPTIMAP data access</h1>
+  <div class="col-md-6 py-5">
 
-    <p class="lead">All publication metadata published in OPTIMAP is licensed under a Create Commons Zero (<a href='https://creativecommons.org/publicdomain/zero/1.0/'>CC-0</a>) license.</p>
+    <h1 class="mb-4">OPTIMAP Data &amp; API Access</h1>
+    <p class="lead">
+      All publication metadata published in OPTIMAP is licensed under a Creative Commons Zero
+      (<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank">CC-0</a>) license.
+    </p>
 
-    <h2 class="py-2">API endpoint</h2>
-    <p>The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>. Visit the URL in your browser to get an interactive interface for exploring the API.</p>
+    <h2 class="py-2">API Endpoint</h2>
+    <p>
+      The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>. Visit in your browser for
+      an interactive interface.
+    </p>
 
-    <p>You can query all publications with the following request (using <a href="https://stedolan.github.io/jq/" title="Link to jq project website"><code>jq</code></a> for formatting of the response):</p>
-    <pre>
-      curl -X GET {{ site|addstr:"/api" }}/api/publications/ | jq
-    </pre>
+    <p>
+      Query all publications via:
+      <pre class="bg-light p-2">
+curl -X GET {{ site|addstr:"/api" }}/api/optimap/ | jq
+      </pre>
+    </p>
 
-    <h2 class="py-2">OpenAPI schema</h2>
-    <p>You can download an OpenAPI specification of the api at <b>{{ site|addstr:"/api/schema"|urlize }}</b>.</p>
+    <h2 class="py-2">OpenAPI Schema</h2>
+    <p>
+      Download the OpenAPI spec at <b>{{ site|addstr:"/api/schema"|urlize }}</b>.
+    </p>
 
-    <h2 class="py-2">OpenAPI user interface</h2>
-    <p>You can explore the API with an interactive user intreface built based on the OpenAPI schema at <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.</p>
+    <h2 class="py-2">OpenAPI UI</h2>
+    <p>
+      Explore interactively at <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.
+    </p>
+
+    <hr>
+
+    <h2 class="py-2">Download Publication Data</h2>
+    <ul class="list-unstyled mb-4">
+      {% if last_geojson %}
+      <li class="mb-3">
+        <div class="d-flex align-items-center">
+          <a class="btn btn-primary btn-sm" href="{% url 'optimap:download_geojson' %}">
+            Download GeoJSON
+          </a>
+          (<a href="https://geojson.org/" target="_blank" class="ms-2 small">GeoJSON spec</a>)
+        </div>
+        <div class="small text-muted mt-1">
+          File: {{ last_geojson }}{% if geojson_size %} &middot; Size: {{ geojson_size }}{% endif %}
+        </div>
+      </li>
+      {% endif %}
+
+      {% if last_gpkg %}
+      <li>
+        <div class="d-flex align-items-center">
+          <a class="btn btn-primary btn-sm" href="{% url 'optimap:download_geopackage' %}">
+            Download GeoPackage
+          </a>
+          (<a href="https://www.geopackage.org/" target="_blank" class="ms-2 small">GeoPackage spec</a>)
+        </div>
+        <div class="small text-muted mt-1">
+          File: {{ last_gpkg }}{% if geopackage_size %} &middot; Size: {{ geopackage_size }}{% endif %}
+        </div>
+      </li>
+      {% endif %}
+    </ul>
+    <p class="small text-muted text-center mb-0">
+      Data dumps run every {{ interval }} hour{{ interval|pluralize }}.<br>
+      {% if last_updated %}
+        Last updated: {{ last_updated|naturaltime }}
+      {% else %}
+        No dumps have been generated yet.
+      {% endif %}
+    </p>
 
   </div>
 </div>
-
 {% endblock %}

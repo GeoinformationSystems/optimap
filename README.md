@@ -32,7 +32,7 @@ A complete list of existing parameters is provided in the file `optimap/.env.exa
 The project is containerized using Docker, with services defined in `docker-compose.yml`. To start all services, run:
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 ### Initial Setup
@@ -41,24 +41,24 @@ After starting the containers, apply database migrations:
 
 ```bash
 # run migrations, in the directory where docker-compose is to resolve the name "web"
-docker-compose run web python manage.py makemigrations
-docker-compose run web python manage.py migrate
+docker compose run app python manage.py makemigrations # should not detect and changes, otherwise your local config might be outdated
+docker compose run app python manage.py migrate
+docker compose run app python manage.py collectstatic --noinput
+docker compose run app python manage.py loaddata fixtures/test_data.json
 ```
 
-Now open a browser at <http://localhost:8001/>.
+Now open a browser at <http://localhost:80/>.
 
 #### Services Overview
 
 - db: Runs a PostgreSQL database with PostGIS extensions. Data is persisted in a Docker volume named db_data.
-- app: Python-based app serving HTTP requests.
-- web: Our primary Django web application.
+- app: Our primary Django web application.
 - webserver: An Nginx server for serving static files and test files.
 
 #### Ports
 
 - 5434: Database (PostgreSQL/PostGIS)
-- 8002: App (Python HTTP server)
-- 8001: Web application (Django server)
+- 8000: App (Django server)
 - 8080: Webserver (Nginx)
 
 ## Development
@@ -111,10 +111,13 @@ source .venv/bin/activate
 # Confirm Python path
 which python
 
-# Instal GDAL and the Python GDAL bindings, see Dockerfile for example on Ubuntu
+# Install GDAL
 gdalinfo --version
 
-# Install non-GDAL Python dependencies
+# Install gdal Pyhton library matching your GDAL version
+pip install gdal=="$(gdal-config --version).*"
+
+# Install Python dependencies
 pip install -r requirements.txt
 
 # create local DB container (once)

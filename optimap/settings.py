@@ -45,6 +45,8 @@ TEST_HARVESTING_ONLINE = env('OPTIMAP_TEST_HARVESTING_ONLINE', default=False)
 
 ROOT_URLCONF = 'optimap.urls'
 
+DATA_DUMP_RETENTION = int(os.getenv("OPTIMAP_DATA_DUMP_RETENTION", 3))
+
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     "sesame.backends.ModelBackend",
@@ -59,6 +61,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.gis',
     'django.contrib.sitemaps',
+    'django.contrib.humanize',
     'publications',
     'rest_framework',
     'rest_framework_gis',
@@ -195,6 +198,7 @@ WIKIBASE_API_URL = env("WIKIBASE_API_URL")
 WIKIBASE_USERNAME = env("WIKIBASE_USERNAME")
 WIKIBASE_PASSWORD = env("WIKIBASE_PASSWORD")
 
+DATA_DUMP_INTERVAL_HOURS = 6
 
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',
@@ -214,6 +218,8 @@ MIDDLEWARE = [
     "django.contrib.sites.middleware.CurrentSiteMiddleware",
     "sesame.middleware.AuthenticationMiddleware",
     "django_currentuser.middleware.ThreadLocalUserMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
+
 ]
 
 ROOT_URLCONF = 'optimap.urls'
