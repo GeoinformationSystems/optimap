@@ -13,7 +13,9 @@ import secrets
 from django.contrib import messages
 from django.views.decorators.cache import never_cache
 from django.urls import reverse
-import uuid
+import uuid, GlobalRegion
+from django.contrib.gis.serializers import geojson
+from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.timezone import now, get_default_timezone
 from datetime import datetime
@@ -519,3 +521,9 @@ class RobotsView(View):
             content_type="text/plain"
         )
         return response
+
+def feeds_list(request):
+    regions = GlobalRegion.objects.all().order_by("region_type", "name")
+    return render(request,
+                  "feeds_list.html",
+                  {"regions": regions})

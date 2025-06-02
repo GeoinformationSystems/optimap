@@ -5,6 +5,8 @@ from django.shortcuts import redirect
 from publications import views
 from .feeds import GeoFeed
 from django.views.generic import RedirectView
+from .feeds_geometry import GeoFeedByGeometry
+
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView
 
 app_name = "optimap"
@@ -38,7 +40,10 @@ urlpatterns = [
     path("confirm-delete/<str:token>/", views.confirm_account_deletion, name="confirm_delete"),
     path("finalize-delete/", views.finalize_account_deletion, name="finalize_delete"),
     path("changeuser/", views.change_useremail, name="changeuser"),
-    path("confirm-email/<str:token>/<str:email_new>/", views.confirm_email_change, name="confirm-email-change"),
+    path("feeds/georss/<slug:geometry_slug>/",GeoFeedByGeometry(feed_type_variant="georss"),name="feed-georss-by-slug",),
+    path("feeds/geoatom/<slug:geometry_slug>/", GeoFeedByGeometry(feed_type_variant="geoatom"), name="feed-geoatom-by-slug"),
+    path("feeds/w3cgeo/<slug:geometry_slug>/", GeoFeedByGeometry(feed_type_variant="w3cgeo"), name="feed-w3cgeo-by-slug"),
+    path("feeds/", views.feeds_list, name="feeds_list"),
     path('download/geojson/', views.download_geojson, name='download_geojson'),
     path('download/geopackage/', views.download_geopackage, name='download_geopackage'),
 ]

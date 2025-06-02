@@ -1,0 +1,64 @@
+{% extends "base.html" %} {% block content %}
+<div class="container px-4 py-8 max-w-3xl">
+  <h1 class="text-3xl font-bold mb-6">GeoJSON Feeds</h1>
+
+  <ul class="list-disc list-inside space-y-2">
+    {% for region in regions %}
+    <li class="flex flex-wrap items-center space-x-2">
+      <span class="font-semibold">{{ region.get_region_type_display }}:</span>
+
+      {# GeoRSS feed link #}
+      <a
+        href="{% url 'optimap:feed-georss-by-slug' region.name|slugify %}"
+        class="text-blue-600 hover:underline"
+        title="GeoRSS feed for {{ region.name }}"
+      >
+        {{ region.name }}.georss
+      </a>
+      <span>|</span>
+
+      {# Atom feed link #}
+      <a
+        href="{% url 'optimap:feed-geoatom-by-slug' region.name|slugify %}"
+        class="text-blue-600 hover:underline"
+        title="Atom feed for {{ region.name }}"
+      >
+        {{ region.name }}.geoatom
+      </a>
+      <span>|</span>
+
+      {# W3C-Geo feed link #}
+      <a
+        href="{% url 'optimap:feed-w3cgeo-by-slug' region.name|slugify %}"
+        class="text-blue-600 hover:underline"
+        title="W3C-Geo feed for {{ region.name }}"
+      >
+        {{ region.name }}.w3cgeo
+      </a>
+
+      <small class="text-gray-500">
+        (updated {{ region.last_loaded|date:"Y-m-d H:i" }})
+      </small>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <h2 class="text-2xl font-semibold mt-8 mb-4">Sources &amp; Licenses</h2>
+  <ul class="list-disc list-inside space-y-2 text-sm text-gray-700">
+    {% for region in regions %}
+    <li class="flex items-center space-x-2">
+      <span class="flex-shrink-0">{{ region.name }}:</span>
+      <a
+        href="{{ region.source_url }}"
+        title="{{ region.source_url }}"
+        target="_blank"
+        class="flex-1 min-w-0 truncate text-blue-600 hover:underline"
+      >
+        {{ region.source_url }}
+      </a>
+      <span class="flex-shrink-0">(<em>{{ region.license }}</em>)</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}
