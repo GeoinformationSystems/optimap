@@ -1,5 +1,32 @@
 [
   {
+    "model": "publications.journal",
+    "pk": 1,
+    "fields": {
+    "name": "Nature",                    
+    "issn_l": "0028-0836",    
+    "openalex_id": null,
+    "publisher_name": null,
+    "works_count": null,
+    "works_api_url": null,
+    "openalex_url": null
+  }
+  },
+  {
+    "model": "publications.journal",
+    "pk": 2,
+    "fields": {
+    "name": "Science",                    
+    "issn_l": "0036-8075",               
+    "openalex_id": null,
+    "publisher_name": null,
+    "works_count": null,
+    "works_api_url": null,
+    "openalex_url": null
+  }
+  },
+
+  {
     "model": "publications.publication",
     "pk": 1,
     "fields": {
@@ -12,7 +39,7 @@
       "geometry": "SRID=4326;GEOMETRYCOLLECTION (POINT (7.595730774920725 51.96944097112328), POLYGON ((7.599984296478425 51.984257653537384, 7.5715788777530975 51.97057414651397, 7.570122189613329 51.950602187631205, 7.580319006590855 51.93825551711683, 7.609054957094401 51.93035649564658, 7.659674869951374 51.942256350721436, 7.6833460522228165 51.968514669138415, 7.665137450475669 51.99229098076532, 7.626171042736502 51.98982421450293, 7.599984296478425 51.984257653537384)))",
       "creationDate": "2022-10-24T12:10:53.086Z",
       "lastUpdate": "2022-10-24T12:10:53.086Z",
-      "source": "OPTIMAP Test Journal",
+      "source": 1,
       "timeperiod_startdate": "[\"2020-02-02\"]",
       "timeperiod_enddate": "[\"2022-02-20\"]",
       "provenance": "Manually added from file test_data.json using the Django management script."
@@ -31,7 +58,7 @@
       "geometry": "SRID=4326;GEOMETRYCOLLECTION (LINESTRING (9.754609563397707 52.36630414438588, 9.813062794192035 52.41569645624003, 10.141300167111496 52.36904961184797, 10.518997966087937 52.330597538337116, 10.838242534270051 52.311358956793185, 11.058566250338231 52.220550088821824, 11.535184901427073 52.15714903642342, 12.272594889905236 52.24258143981572, 12.618817872299417 52.35532056817789, 12.911084026269464 52.2976119913985, 13.144896949445211 52.50063147184562, 13.396695482095708 52.517051586549286))",
       "creationDate": "2022-10-24T12:10:53.086Z",
       "lastUpdate": "2022-10-24T12:10:53.086Z",
-      "source": "OPTIMAP Test Journal",
+      "source": 1,
       "timeperiod_startdate": "[\"2010-01-01\"]",
       "timeperiod_enddate": "[\"2012-12-12\"]",
       "provenance": "Manually added from file test_data.json using the Django management script."
@@ -50,10 +77,49 @@
       "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((13.558502 50.990421, 13.558502 51.094036, 13.864746 51.094036, 13.864746 50.990421, 13.558502 50.990421)))",
       "creationDate": "2022-10-24T12:10:53.086Z",
       "lastUpdate": "2022-10-24T12:10:53.086Z",
-      "source": "OPTIMAP Test Journal",
+      "source": 1,
       "timeperiod_startdate": "[\"2023\"]",
       "timeperiod_enddate": "[\"2024\"]",
       "provenance": "Manually added from file test_data.json using the Django management script."
+    }
+  },
+
+  {
+    "model": "publications.publication",
+    "pk": 4,
+    "fields": {
+      "status": "p",
+      "title": "Statewide Spatial Data Clearinghouses: an Oregon Case Study",
+      "abstract": "Collaborative planning to streamline and provide citizens with easier access to geospatial data has a long history in Oregon, culminating in the launch of the Oregon Spatial Data Library in November 2009. This case study examines how Oregon’s participation in the National Spatial Data Infrastructure (NSDI) shaped statewide data sharing practices.",
+      "publicationDate": "2012-08-01",
+      "doi": "10.5062/F4RB72J1",
+      "url": "http://www.istl.org/12-summer/refereed4.html",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POINT(-123.035094 44.942898))",
+      "creationDate": "2024-06-01T09:30:00.000Z",
+      "lastUpdate": "2024-06-01T09:30:00.000Z",
+      "source": 2,
+      "timeperiod_startdate": "[\"2009-11-01\"]",
+      "timeperiod_enddate": "[\"2010-11-01\"]",
+      "provenance": "Imported from ResearchGate and Oregon State University Archive on 2024-06-01."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 5,
+    "fields": {
+      "status": "p",
+      "title": "GIS at John Day Fossil Beds National Monument: Paleontological Locality Data and Inventory Practices",
+      "abstract": "This study uses GIS to analyze long-term paleontological locality data from John Day Fossil Beds National Monument, Oregon, to inform better inventory and monitoring practices for fossil resources. We demonstrate how GPS-enabled mapping and spatial analysis can reveal sampling inconsistencies and guide future field surveys.",
+      "publicationDate": "2020-04-15",
+      "doi": "10.26879/1053",
+      "url": "https://palaeo-electronica.org/content/2020/2996-gis-at-john-day-fossil-beds",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POINT(-119.350000 44.300000))",
+      "creationDate": "2024-06-01T10:15:00.000Z",
+      "lastUpdate": "2024-06-01T10:15:00.000Z",
+      "source": 2,
+      "timeperiod_startdate": "[\"2019\"]",
+      "timeperiod_enddate": "[\"2020\"]",
+      "provenance": "Imported from Palaeontologia Electronica archive on 2024-06-01."
     }
   }
 ]

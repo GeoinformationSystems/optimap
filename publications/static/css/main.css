@@ -175,3 +175,9 @@ main {
   background: #fff;
 }
 
+.leaflet-popup-content {
+  max-width: 250px !important;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}

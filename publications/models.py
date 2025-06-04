@@ -45,7 +45,7 @@ class Publication(models.Model):
     
     # optional fields
     doi = models.CharField(max_length=1024, unique=True, blank=True, null=True)
-    source = models.CharField(max_length=4096, null=True, blank=True) # journal, conference, preprint repo, ..
+    source = models.ForeignKey('Journal', on_delete=models.SET_NULL, null=True, related_name='publications')
     provenance = models.TextField(null=True, blank=True)
     publicationDate = models.DateField(null=True, blank=True)
     abstract = models.TextField(null=True, blank=True)
@@ -231,3 +231,15 @@ class BlockedDomain(models.Model):
 
     def __str__(self):
         return self.domain
+
+class Journal(models.Model):
+    name = models.CharField(max_length=255)
+    issn_l = models.CharField(max_length=9, blank=True, null=True)
+    openalex_id = models.CharField(max_length=50, blank=True, null=True)
+    publisher_name = models.CharField(max_length=255, blank=True, null=True)
+    works_count = models.IntegerField(blank=True, null=True)
+    works_api_url = models.URLField(max_length=512, blank=True, null=True)
+    openalex_url = models.URLField(max_length=512, blank=True, null=True)
+
+    def __str__(self):
+        return self.name
