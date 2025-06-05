@@ -7,6 +7,24 @@ from publications.tasks import harvest_oai_endpoint, schedule_subscription_email
 from django_q.models import Schedule
 from django.utils.timezone import now
 from publications.models import CustomUser
+from publications.wikidata import export_publications_to_wikidata
+
+@admin.action(description="Create new Wikidata items for selected publications")
+def export_to_wikidata(modeladmin, request, queryset):
+    created_count, updated_count, error_records = export_publications_to_wikidata(queryset)
+
+    # Success messages
+    if created_count:
+        messages.success(request, f"{created_count} new Wikidata item(s) created.")
+    if updated_count:
+        messages.success(request, f"{updated_count} existing Wikidata item(s) updated.")
+
+    # Warnings and errors
+    for publication, error_message in error_records:
+        if error_message == "no publicationDate":
+            messages.warning(request, f"Skipping “{publication.title}”: no publication date")
+        else:
+            messages.error(request, f"Failed to export “{publication.title}”: {error_message}")
 
 @admin.action(description="Mark selected publications as published")
 def make_public(modeladmin, request, queryset):
@@ -112,13 +130,14 @@ def block_email_and_domain(modeladmin, request, queryset):
         user.delete()
     modeladmin.message_user(request, "Selected users have been deleted and their emails/domains blocked.")
 
+
 @admin.register(Publication)
 class PublicationAdmin(LeafletGeoAdmin, ImportExportModelAdmin):
     """Publication Admin."""
     list_display = ("title", "doi", "creationDate", "lastUpdate", "created_by", "updated_by", "status", "provenance", "source")
     search_fields = ("title", "doi", "abstract", "source")
     list_filter = ("status", "creationDate")
-    actions = [make_public, make_draft]
+    actions = [make_public, make_draft, export_to_wikidata]
 
     fields = (
         "title", "doi", "status", "source", "abstract",
@@ -182,3 +201,4 @@ class UserAdmin(admin.ModelAdmin):
 admin.site.register(EmailLog, EmailLogAdmin)
 admin.site.register(UserProfile, UserProfileAdmin)
 admin.site.register(Subscription, SubscriptionAdmin)  
+
