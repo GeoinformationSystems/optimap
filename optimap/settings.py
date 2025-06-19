@@ -205,6 +205,7 @@ OAI_USERNAME = env("OPTIMAP_OAI_USERNAME", default="")
 OAI_PASSWORD = env("OPTIMAP_OAI_PASSWORD", default="")
 EMAIL_SEND_DELAY = 2
 DATA_DUMP_INTERVAL_HOURS = 6
+OPENALEX_MAILTO = "login@optimap.science"
 
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',

@@ -99,7 +99,7 @@ def generate_geopackage():
         feat.SetField("title", pub.title or "")
         feat.SetField("abstract", pub.abstract or "")
         feat.SetField("doi", pub.doi or "")
-        feat.SetField("source", pub.source or "")
+        feat.SetField("source", pub.source.name if pub.source else "")
         if pub.geometry:
             wkb = pub.geometry.wkb
             geom = ogr.CreateGeometryFromWkb(wkb)

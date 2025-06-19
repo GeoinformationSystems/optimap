@@ -5,7 +5,9 @@ from django.shortcuts import redirect
 from publications import views
 from .feeds import GeoFeed
 from django.views.generic import RedirectView
+from publications.api import router as publications_router
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView
+from rest_framework.routers import DefaultRouter 
 
 app_name = "optimap"
 
