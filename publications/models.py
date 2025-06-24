@@ -231,3 +231,22 @@ class BlockedDomain(models.Model):
 
     def __str__(self):
         return self.domain
+
+class GlobalRegion(models.Model):
+    CONTINENT = 'C'
+    OCEAN     = 'O'
+    TYPE_CHOICES = [
+        (CONTINENT, 'Continent'),
+        (OCEAN,     'Ocean'),
+    ]
+
+    name        = models.CharField(max_length=100, unique=True)
+    region_type = models.CharField(max_length=1, choices=TYPE_CHOICES)
+    source_url  = models.URLField()
+    license     = models.CharField(max_length=200)
+    geom        = models.MultiPolygonField(srid=4326)
+    last_loaded = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+

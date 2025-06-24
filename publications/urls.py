@@ -5,6 +5,8 @@ from django.shortcuts import redirect
 from publications import views
 from .feeds import GeoFeed
 from django.views.generic import RedirectView
+from .feeds_geometry import GeoFeedByGeometry
+
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView
 
 app_name = "optimap"
@@ -12,7 +14,7 @@ app_name = "optimap"
 urlpatterns = [
     path('', views.main, name="main"),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/schema/ui/',SpectacularRedocView.as_view(url_name='optimap:schema'),name='redoc'),
+    path('api/schema/ui/', SpectacularRedocView.as_view(url_name='optimap:schema'), name='redoc'),
     path('download/geojson/', views.download_geojson, name='download_geojson'),
     path('download/geopackage/', views.download_geopackage, name='download_geopackage'),
     path('favicon.ico', lambda request: redirect('static/favicon.ico', permanent=True)),
@@ -43,4 +45,10 @@ urlpatterns = [
     path("subscriptions/", views.user_subscriptions, name="subscriptions"),
     path("unsubscribe/", views.unsubscribe, name="unsubscribe"),
     path("usersettings/", views.user_settings, name="usersettings"),
+    path("feeds/georss/<slug:geometry_slug>/",
+         GeoFeedByGeometry(feed_type_variant="georss"), name="feed-georss-by-slug",),
+    path("feeds/geoatom/<slug:geometry_slug>/",
+         GeoFeedByGeometry(feed_type_variant="geoatom"), name="feed-geoatom-by-slug"),
+    path("feeds/", views.feeds_list, name="feeds_list"),
+
 ]

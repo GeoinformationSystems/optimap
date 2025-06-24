@@ -84,6 +84,8 @@ To load the test data into your database, run:
 
 ```bash
 python manage.py loaddata fixtures/test_data.json
+python manage.py loaddata fixtures/test_data_global_feeds.json
+
 ```
 
 #### Adding New Test Data
