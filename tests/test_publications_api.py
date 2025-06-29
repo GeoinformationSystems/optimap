@@ -1,6 +1,6 @@
 from datetime import date
 import os
-from django.test import Client, TestCase
+from django.test import Client, TransactionTestCase
 from publications.models import Publication
 from django.contrib.gis.geos import Point, MultiPoint, LineString, Polygon, GeometryCollection
 from django.contrib.auth import get_user_model
@@ -8,7 +8,7 @@ User = get_user_model()
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'optimap.settings')
 
-class PublicationsApiTest(TestCase):
+class PublicationsApiTest(TransactionTestCase):
     
     def setUp(self):
         self.client = Client()

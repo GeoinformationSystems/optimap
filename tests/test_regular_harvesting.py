@@ -4,7 +4,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'optimap.settings')
 django.setup()
 import unittest
 from publications.tasks import harvest_oai_endpoint
-from django.test import TestCase, Client
+from django.test import TransactionTestCase, Client
 from django.core import mail
 from django.utils import timezone
 from django.conf import settings
@@ -16,7 +16,7 @@ from publications.models import Source, Publication, HarvestingEvent
 User = get_user_model()
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-class HarvestRegularMetadataTestCase(TestCase):
+class HarvestRegularMetadataTestCase(TransactionTestCase):
     def setUp(self):
         Publication.objects.all().delete()
         HarvestingEvent.objects.all().delete()
