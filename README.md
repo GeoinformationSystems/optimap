@@ -80,10 +80,10 @@ python manage.py dumpdata --exclude=auth --exclude=contenttypes | jq > fixtures/
 
 #### Loading Test Data
 
-To load the test data into your database, run:
+To load the test data into your database, run the following command choosing one of the existing fixtures:
 
 ```bash
-python manage.py loaddata fixtures/test_data.json
+python manage.py loaddata fixtures/test_data{optimap, partners}.json
 ```
 
 #### Adding New Test Data

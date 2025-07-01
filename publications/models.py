@@ -1,16 +1,19 @@
+import logging
+
+from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.conf import settings
 from django_currentuser.db.models import CurrentUserField
 from django_q.models import Schedule
 from django.utils.timezone import now
 from django.contrib.auth.models import AbstractUser, Group, Permission
-from django.utils.timezone import now
-# handle import/export relations, see https://django-import-export.readthedocs.io/en/stable/advanced_usage.html#creating-non-existent-relations
 from import_export import fields, resources
 from import_export.widgets import ForeignKeyWidget
-from django.conf import settings
+from django.core.exceptions import ValidationError
+from stdnum.issn import is_valid as is_valid_issn
+from django.contrib.gis.db import models as gis_models 
 
-import logging
 logger = logging.getLogger(__name__)
 
 STATUS_CHOICES = (
@@ -26,15 +29,12 @@ class CustomUser(AbstractUser):
     user_permissions = models.ManyToManyField(Permission, related_name="publications_users_permissions", blank=True)
 
 class Publication(models.Model):
-    # required fields
     title = models.TextField()
     status = models.CharField(max_length=1, choices=STATUS_CHOICES, default="d")
-    created_by = CurrentUserField( # see useful hint at https://github.com/zsoldosp/django-currentuser/issues/69
+    created_by = CurrentUserField(
         verbose_name=("Created by"),
         related_name="%(app_label)s_%(class)s_creator",
     )
-
-    # automatic fields
     creationDate = models.DateTimeField(auto_now_add=True)
     lastUpdate = models.DateTimeField(auto_now=True)
     updated_by = CurrentUserField(
@@ -42,31 +42,21 @@ class Publication(models.Model):
         related_name="%(app_label)s_%(class)s_updater",
         on_update=True,
     )
-    
-    # optional fields
+
     doi = models.CharField(max_length=1024, unique=True, blank=True, null=True)
-    source = models.CharField(max_length=4096, null=True, blank=True) # journal, conference, preprint repo, ..
+    source = models.ForeignKey('Source', on_delete=models.SET_NULL, null=True, related_name='publications')
     provenance = models.TextField(null=True, blank=True)
     publicationDate = models.DateField(null=True, blank=True)
     abstract = models.TextField(null=True, blank=True)
     url = models.URLField(max_length=1024, null=True, blank=True, unique=True)
-    geometry = models.GeometryCollectionField(verbose_name='Publication geometry/ies', srid = 4326, null=True, blank=True)# https://docs.openalex.org/api-entities/sources
+    geometry = models.GeometryCollectionField(
+        verbose_name='Publication geometry/ies', srid=4326, null=True, blank=True
+    )
     timeperiod_startdate = ArrayField(models.CharField(max_length=1024, null=True), null=True, blank=True)
     timeperiod_enddate = ArrayField(models.CharField(max_length=1024, null=True), null=True, blank=True)
-
-    # Linking to HarvestingEvent as "job"
     job = models.ForeignKey(
-        'HarvestingEvent', 
-        on_delete=models.CASCADE, 
-        related_name='publications', 
-        null=True, 
-        blank=True
+        'HarvestingEvent', on_delete=models.CASCADE, related_name='publications', null=True, blank=True
     )
-
-
-    def get_absolute_url(self):
-        return "/api/v1/publications/%i.json" % self.id
-        # http://localhost:8000/api/v1/publications/5.json
 
     class Meta:
         ordering = ['-id']
@@ -74,70 +64,24 @@ class Publication(models.Model):
             models.UniqueConstraint(fields=['doi', 'url'], name='unique_publication_entry')
         ]
 
-
     def __str__(self):
-        """Return string representation."""
         return self.title
-
-class Source(models.Model):
-    # automatic fields
-    creationDate = models.DateTimeField(auto_now_add=True)
-    lastUpdate = models.DateTimeField(auto_now=True)
-    created_by = CurrentUserField(
-        verbose_name=("Created by"),
-        related_name="%(app_label)s_%(class)s_creator",
-    )
-    updated_by = CurrentUserField(
-        verbose_name=("Updated by"),
-        related_name="%(app_label)s_%(class)s_updater",
-        on_update=True,
-    )
-
-    url_field = models.URLField(max_length = 999)
-    harvest_interval_minutes = models.IntegerField(default=60*24*3)
-    last_harvest = models.DateTimeField(auto_now_add=True,null=True)
-
-    collection_name = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="Identifier for a set or group of journals (e.g., 'Health Journals', 'TestBatch_Apr2025')."
-    )
-    tags = models.CharField(
-        max_length=1024,
-        blank=True,
-        null=True,
-        help_text="Comma-separated tags to provide additional context"
-    )
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        Schedule.objects.filter(name=f"Harvest Source {self.id}").delete()  # Avoid duplicates
-        Schedule.objects.create(
-            func='publications.tasks.harvest_oai_endpoint',
-            args=str(self.id),
-            schedule_type=Schedule.MINUTES,
-            minutes=self.harvest_interval_minutes,
-            name=f"Harvest Source {self.id}",
-        )
-
 
 class Subscription(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="subscriptions", null=True, blank=True)
     name = models.CharField(max_length=4096, default="default_subscription")
-    search_term = models.CharField(max_length=4096,null=True)
+    search_term = models.CharField(max_length=4096, null=True)
     timeperiod_startdate = models.DateField(null=True)
     timeperiod_enddate = models.DateField(null=True)
     region = models.GeometryCollectionField(null=True, blank=True)
-    subscribed = models.BooleanField(default=True) 
-
-    def __str__(self):
-        """Return string representation."""
-        return self.name
+    subscribed = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['name']
         verbose_name = "subscription"
+
+    def __str__(self):
+        return self.name
 
 class EmailLog(models.Model):
     TRIGGER_CHOICES = [
@@ -151,8 +95,8 @@ class EmailLog(models.Model):
     email_content = models.TextField(blank=True, null=True)
     sent_by = models.ForeignKey(CustomUser, null=True, blank=True, on_delete=models.SET_NULL)
     trigger_source = models.CharField(max_length=50, choices=TRIGGER_CHOICES, default="manual")
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="success") 
-    error_message = models.TextField(null=True, blank=True) 
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="success")
+    error_message = models.TextField(null=True, blank=True)
 
     def __str__(self):
         sender = self.sent_by.email if self.sent_by else "System"
@@ -160,54 +104,35 @@ class EmailLog(models.Model):
 
     @classmethod
     def log_email(cls, recipient, subject, content, sent_by=None, trigger_source="manual", status="success", error_message=None):
-        """Logs the sent email, storing who triggered it and how it was sent."""
         cls.objects.create(
             recipient_email=recipient,
             subject=subject,
             sent_at=now(),
             email_content=content,
             sent_by=sent_by,
-            trigger_source=trigger_source, 
-            status=status,  
-            error_message=error_message,  
-
+            trigger_source=trigger_source,
+            status=status,
+            error_message=error_message,
         )
-
-class PublicationResource(resources.ModelResource):
-    #created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='username')
-    #updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='username')
-    created_by = fields.Field(
-        column_name='created_by',
-        attribute='created_by',
-        widget=ForeignKeyWidget(CustomUser, field='username'))
-    updated_by = fields.Field(
-        column_name='updated_by',
-        attribute='updated_by',
-        widget=ForeignKeyWidget(settings.AUTH_USER_MODEL, field='username'))
-    
-    class Meta:
-        model = Publication
-        fields = ('created_by','updated_by',)
 
 class HarvestingEvent(models.Model):
     source = models.ForeignKey('Source', on_delete=models.CASCADE, related_name='harvesting_events')
-    user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True) 
-    started_at = models.DateTimeField(auto_now_add=True)  
-    completed_at = models.DateTimeField(null=True, blank=True) 
+    user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=16,
-        choices=(
+        choices=[
             ('pending', 'Pending'),
             ('in_progress', 'In Progress'),
             ('completed', 'Completed'),
             ('failed', 'Failed'),
-        ),
+        ],
         default='pending'
-    )  
+    )
 
     def __str__(self):
         return f"Harvesting Event ({self.status}) for {self.source.url_field} at {self.started_at}"
-
 
 class UserProfile(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
@@ -231,3 +156,47 @@ class BlockedDomain(models.Model):
 
     def __str__(self):
         return self.domain
+
+class Source(models.Model):
+    url_field                = models.URLField(max_length=999)
+    harvest_interval_minutes = models.IntegerField(default=60*24*3)
+    last_harvest             = models.DateTimeField(auto_now_add=True, null=True)
+    collection_name          = models.CharField(max_length=255, blank=True, null=True)
+    tags                     = models.CharField(max_length=1024, blank=True, null=True)
+    is_preprint              = models.BooleanField(default=False)
+    name                     = models.CharField(max_length=255)
+    issn_l                   = models.CharField(max_length=9, blank=True, null=True)
+    openalex_id              = models.CharField(max_length=50, blank=True, null=True)
+    openalex_url             = models.URLField(max_length=512, blank=True, null=True)
+    publisher_name           = models.CharField(max_length=255, blank=True, null=True)
+    works_count              = models.IntegerField(blank=True, null=True)
+    homepage_url             = models.URLField(max_length=512, blank=True, null=True)
+    abbreviated_title        = models.CharField(max_length=255, blank=True, null=True)
+
+    is_oa                    = models.BooleanField(default=False)
+    cited_by_count           = models.IntegerField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def works_api_url(self) -> str | None:
+        if not self.openalex_id:
+            return None
+        source_id = self.openalex_id.rstrip('/').split('/')[-1]
+        return f"https://api.openalex.org/works?filter=primary_location.source.id:{source_id}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        Schedule.objects.filter(name=f"Harvest Source {self.id}").delete()
+        Schedule.objects.create(
+            func='publications.tasks.harvest_oai_endpoint',
+            args=str(self.id),
+            schedule_type=Schedule.MINUTES,
+            minutes=self.harvest_interval_minutes,
+            name=f"Harvest Source {self.id}",
+        )
+Journal = Source  

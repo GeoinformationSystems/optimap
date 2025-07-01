@@ -1,47 +1,93 @@
 """publications serializers."""
 
-from rest_framework_gis import serializers
-from .models import Publication
+from rest_framework import serializers
+from rest_framework_gis.serializers import GeoFeatureModelSerializer
+from rest_framework import serializers as drf_serializers
+from .models import Publication, Subscription, Source
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
-from publications.models import Publication,Subscription
-from django.contrib.auth import get_user_model
-User = get_user_model()
-
-class PublicationSerializer(serializers.GeoFeatureModelSerializer):
-    """publication GeoJSON serializer."""
+class SourceSerializer(serializers.ModelSerializer):
+    works_api_url = serializers.CharField(read_only=True)
 
     class Meta:
-        """publication serializer meta class."""
-        model = Publication
-        fields = ("id", "title" ,"abstract", "publicationDate", "url", "doi", "creationDate", "lastUpdate", "timeperiod_startdate", "timeperiod_enddate")
-        geo_field = "geometry"
-        auto_bbox = True      
-       
-class SubscriptionSerializer(serializers.GeoFeatureModelSerializer):
-    """Subscription GeoJSON serializer."""
+        model = Source
+        fields = [
+            "id",
+            "name",
+            "issn_l",
+            "openalex_id",
+            "openalex_url",
+            "publisher_name",
+            "works_count",
+            "works_api_url",
+        ]
 
+
+
+class PublicationSerializer(GeoFeatureModelSerializer):
+    source_details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Publication
+        geo_field = "geometry"
+        auto_bbox = True
+        fields = [
+            "id",
+            "title",
+            "abstract",
+            "publicationDate",
+            "doi",
+            "url",
+            "timeperiod_startdate",
+            "timeperiod_enddate",
+            "source_details",
+        ]
+
+    def get_source_details(self, obj):
+        if not obj.source:
+            return {}
+        return {
+            "id": obj.source.id,
+            "name": obj.source.name,
+            "issn_l": obj.source.issn_l,
+            "openalex_url": obj.source.openalex_url,
+        }
+
+class SubscriptionSerializer(GeoFeatureModelSerializer):
     class Meta:
         model = Subscription
-        fields = ("search_term","timeperiod_startdate","timeperiod_enddate","user")
+        fields = (
+            "id",
+            "user",
+            "name",
+            "search_term",
+            "timeperiod_startdate",
+            "timeperiod_enddate",
+            "region",
+            "subscribed",
+        )
+
         geo_field = "region"
         auto_bbox = True
-        
-class EmailChangeSerializer(serializers.ModelSerializer):  
+
+
+class EmailChangeSerializer(serializers.ModelSerializer):
     """Handles email change requests."""
 
     class Meta:
         model = User
-        fields = ['email']
+        fields = ["email"]
 
     def validate_email(self, value):
         """Ensure the new email is not already in use."""
         if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("This email is already registered.")
+            raise drf_serializers.ValidationError("This email is already registered.")
         return value
 
-class UserSerializer(serializers.ModelSerializer):
+
+class UserSerializer(drf_serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email"] 
+        fields = ["id", "username", "email"]

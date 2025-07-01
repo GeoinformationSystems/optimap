@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 from django.contrib import admin, messages
 from leaflet.admin import LeafletGeoAdmin
 from publications.models import Publication, Source, HarvestingEvent, BlockedEmail, BlockedDomain
@@ -21,16 +24,19 @@ def make_draft(modeladmin, request, queryset):
 
 @admin.action(description="Trigger harvesting for selected sources")
 def trigger_harvesting_for_specific(modeladmin, request, queryset):
-    user = request.user
-    for source in queryset:
-        harvest_oai_endpoint(source.id, user)  
-
+    return trigger_harvesting_for_set(queryset, request)
+    
 @admin.action(description="Trigger harvesting for all sources")
 def trigger_harvesting_for_all(modeladmin, request, queryset):
     all_sources = Source.objects.all()
+    return trigger_harvesting_for_set(all_sources, request)
+    
+def trigger_harvesting_for_set(sources, request):
     user = request.user
-    for source in all_sources:
-        harvest_oai_endpoint(source.id, user) 
+
+    for source in sources:
+        added, spatial, temporal = harvest_oai_endpoint(source.id, user)
+        logger.info(f"Harvested {added} publications from source {source.id} ({source.url_field}) of which {spatial} have spatial data and {temporal} have temporal data.")
 
 @admin.action(description="Schedule harvesting for selected sources")
 def schedule_harvesting(modeladmin, request, queryset):

@@ -1,6 +1,6 @@
 from datetime import date
 import os
-from django.test import Client, TestCase
+from django.test import Client, TransactionTestCase
 from publications.models import Publication
 from django.contrib.gis.geos import Point, MultiPoint, LineString, Polygon, GeometryCollection
 from django.contrib.auth import get_user_model
@@ -8,7 +8,7 @@ User = get_user_model()
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'optimap.settings')
 
-class PublicationsApiTest(TestCase):
+class PublicationsApiTest(TransactionTestCase):
     
     def setUp(self):
         self.client = Client()
@@ -45,11 +45,15 @@ class PublicationsApiTest(TestCase):
 
     def test_api_redirect(self):
         response = self.client.get('/api')
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, '/api/v1/')
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.url, '/api/')
 
         response = self.client.get('/api/')
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.url, 'v1/')
+
+        response = self.client.get('/api/v1')
+        self.assertEqual(response.status_code, 301)
         self.assertEqual(response.url, '/api/v1/')
 
     def test_api_root(self):
