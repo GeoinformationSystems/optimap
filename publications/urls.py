@@ -43,4 +43,5 @@ urlpatterns = [
     path("subscriptions/", views.user_subscriptions, name="subscriptions"),
     path("unsubscribe/", views.unsubscribe, name="unsubscribe"),
     path("usersettings/", views.user_settings, name="usersettings"),
+    path('admin/zenodo/create/', views.create_zenodo_draft, name='create_zenodo_draft'),
 ]

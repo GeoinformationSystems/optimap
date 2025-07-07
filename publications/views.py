@@ -32,6 +32,10 @@ from publications.tasks import regenerate_geojson_cache, regenerate_geopackage_c
 from osgeo import ogr, osr
 ogr.UseExceptions()
 import humanize
+from .zenodo_service import ZenodoService
+from .metadata_builder import build_zenodo_metadata, collect_upload_paths  
+from django.contrib.admin.views.decorators import staff_member_required
+
 
 LOGIN_TOKEN_LENGTH  = 32
 LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
@@ -538,3 +542,34 @@ class RobotsView(View):
             content_type="text/plain"
         )
         return response
+@staff_member_required
+def create_zenodo_draft(request):
+    """
+    Admin-only view to assemble metadata & files,
+    then call ZenodoService.create_draft(...).
+    """
+    service = ZenodoService()
+
+    key = f"optimap-{date.today().isoformat()}"
+
+    metadata = build_zenodo_metadata()    # you’ll create this helper next
+    file_paths = collect_upload_paths()    # likewise
+
+    try:
+        result = service.create_draft(key=key, metadata=metadata, paths=file_paths)
+        draft_url = result['links']['html']  # or 'draft' depending on API version
+    except Exception as exc:
+        logger.exception("Zenodo draft creation failed")
+        # Redirect back with error message (you can hook into Django’s messaging framework)
+        return redirect(request.META.get('HTTP_REFERER', '/admin/'))
+
+    subject = '[OPTIMAP] Zenodo Draft Ready'
+    message = (
+        f"A new Zenodo deposition draft has been created:\n\n"
+        f"{draft_url}\n\n"
+        "Please review and publish manually on Zenodo."
+    )
+    admin_emails = [email for _, email in settings.ADMINS]
+    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, admin_emails, fail_silently=False)
+
+    return redirect(request.META.get('HTTP_REFERER', '/admin/'))

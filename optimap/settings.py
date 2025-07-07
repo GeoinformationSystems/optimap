@@ -205,6 +205,11 @@ OAI_USERNAME = env("OPTIMAP_OAI_USERNAME", default="")
 OAI_PASSWORD = env("OPTIMAP_OAI_PASSWORD", default="")
 EMAIL_SEND_DELAY = 2
 DATA_DUMP_INTERVAL_HOURS = 6
+# Zenodo configuration
+ZENODO_USE_SANDBOX = env.bool('OPTIMAP_ZENODO_USE_SANDBOX', default=True)
+ZENODO_TOKEN_SANDBOX = env('OPTIMAP_ZENODO_TOKEN_SANDBOX', default='')
+ZENODO_TOKEN_PROD    = env('OPTIMAP_ZENODO_TOKEN_PROD', default='')
+
 
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',

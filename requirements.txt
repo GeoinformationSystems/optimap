@@ -36,3 +36,4 @@ psycopg2-binary==2.9.10
 packaging==21.3
 pycryptodome==3.21.0
 humanize==4.10.0
+zenodo-client>=0.3.6
