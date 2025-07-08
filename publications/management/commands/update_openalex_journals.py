@@ -15,6 +15,7 @@ SEARCH_ENDPOINT = "https://api.openalex.org/sources"
 def fetch_by_issn(issn: str) -> dict | None:
     try:
         resp = requests.get(ISSN_ENDPOINT.format(issn=issn), timeout=10)
+        # follow manual 302 if returned
         if resp.status_code == 302 and "Location" in resp.headers:
             resp = requests.get(resp.headers["Location"], timeout=10)
         if resp.status_code == 200:
@@ -25,9 +26,11 @@ def fetch_by_issn(issn: str) -> dict | None:
 
 def fetch_by_name(name: str) -> dict | None:
     try:
-        resp = requests.get(SEARCH_ENDPOINT,
-                            params={"filter": f"display_name.search:{name}"},
-                            timeout=10)
+        resp = requests.get(
+            SEARCH_ENDPOINT,
+            params={"filter": f"display_name.search:{name}"},
+            timeout=10
+        )
         resp.raise_for_status()
         results = resp.json().get("results", [])
         return results[0] if results else None
@@ -44,38 +47,59 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {total} source(s) to update.\n")
 
         for src in qs:
-            key = src.issn_l or src.name
-            self.stdout.write(f"[{key}] querying OpenAlex…")
+            try:
+                key = src.issn_l or src.name
+                self.stdout.write(f"[{key}] querying OpenAlex…")
+                logger.info("Fetching source metadata for %s", key)
 
-            # log the ISSN or name we're using
-            logger.info("Fetching source metadata for %s", key)
+                # fetch metadata (by ISSN or by name)
+                data = (
+                    fetch_by_issn(src.issn_l)
+                    if src.issn_l
+                    else fetch_by_name(src.name)
+                )
+                if not data:
+                    logger.info("Skipped %s: no OpenAlex data", key)
+                    self.stdout.write(f"[{key}] nothing found\n")
+                    continue
 
-            # fetch metadata
-            data = fetch_by_issn(src.issn_l) if src.issn_l else fetch_by_name(src.name)
-            if not data:
-                logger.info("Skipped ISSN=%s: no OpenAlex data", src.issn_l)
+                changed = False
+                def safe_upd(field: str, new):
+                    nonlocal changed
+                    old = getattr(src, field, None)
+                    if new and new != old:
+                        logger.info("%s: %s changed %r → %r", key, field, old, new)
+                        setattr(src, field, new)
+                        changed = True
+
+                # extract full URI and short ID
+                full_id = data.get("id")
+                openalex_id = full_id.rsplit("/", 1)[-1] if isinstance(full_id, str) else None
+
+                # update fields
+                safe_upd("openalex_id",   openalex_id)
+                safe_upd("openalex_url",  full_id)
+                safe_upd("works_count",   data.get("works_count"))
+                safe_upd("works_api_url", data.get("works_api_url"))
+
+                # compute publisher name safely
+                raw_host = data.get("host_organization")
+                if isinstance(raw_host, dict):
+                    publisher = raw_host.get("display_name") or data.get("display_name")
+                else:
+                    publisher = data.get("display_name")
+                safe_upd("publisher_name", publisher)
+
+                # save if any field changed
+                if changed:
+                    src.save()
+                    self.stdout.write(f"[{key}] saved\n")
+                else:
+                    self.stdout.write(f"[{key}] nothing changed\n")
+
+            except Exception as e:
+                logger.error("Error updating %s: %s", key, e, exc_info=True)
+                self.stdout.write(f"[{key}] skipped due to error: {e}\n")
                 continue
-            
-            changed = False
-            def safe_upd(field: str, new):
-                nonlocal changed
-                old = getattr(src, field, None)
-                if new and new != old:
-                    logger.info("ISSN=%s: %s changed %r → %r", src.issn_l, field, old, new)
-                    setattr(src, field, new)
-                    changed = True
-
-            safe_upd("openalex_url",   data.get("id"))
-            safe_upd("works_count",    data.get("works_count"))
-            # host_organization may be nested under "host_organization"
-            host = data.get("host_organization") or {}
-            publisher = host.get("display_name") or data.get("display_name")
-            safe_upd("publisher_name", publisher)
-
-            if changed:
-                src.save()
-                self.stdout.write(f"[{key}] saved\n")
-            else:
-                self.stdout.write(f"[{key}] nothing changed\n")
 
         self.stdout.write("Done updating OpenAlex metadata.")
