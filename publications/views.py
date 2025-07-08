@@ -33,7 +33,7 @@ from osgeo import ogr, osr
 ogr.UseExceptions()
 import humanize
 from .zenodo_service import ZenodoService
-from .metadata_builder import build_zenodo_metadata, collect_upload_paths  
+from .metadata_builder import build_zenodo_metadata, collect_upload_paths
 from django.contrib.admin.views.decorators import staff_member_required
 
 
