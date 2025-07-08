@@ -19,7 +19,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.serializers import serialize
 from django.core.mail import send_mail, EmailMessage
-from django.contrib.gis.geos import GEOSGeometry, GeometryCollection
+from django.contrib.gis.geos import GEOSGeometry
 from django.utils import timezone
 from django_q.tasks import schedule
 from django_q.models import Schedule

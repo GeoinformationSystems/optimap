@@ -3,7 +3,7 @@ logger = logging.getLogger(__name__)
 
 from django.contrib import admin, messages
 from leaflet.admin import LeafletGeoAdmin
-from publications.models import Publication, Source, HarvestingEvent, BlockedEmail, BlockedDomain
+from publications.models import Publication, Source, HarvestingEvent, BlockedEmail, BlockedDomain, GlobalRegion
 from import_export.admin import ImportExportModelAdmin
 from publications.models import EmailLog, Subscription, UserProfile
 from publications.tasks import harvest_oai_endpoint, schedule_subscription_email_task, send_monthly_email, schedule_monthly_email_task
@@ -12,7 +12,6 @@ from django.utils.timezone import now
 from publications.models import CustomUser
 from publications.tasks import regenerate_geojson_cache
 from publications.tasks import regenerate_geopackage_cache
-from publications.views import generate_geopackage
 
 @admin.action(description="Mark selected publications as published")
 def make_public(modeladmin, request, queryset):
@@ -165,6 +164,7 @@ class HarvestingEventAdmin(admin.ModelAdmin):
     search_fields = ("source__url",)
 
 
+@admin.register(EmailLog)
 class EmailLogAdmin(admin.ModelAdmin):
     list_display = (
         "recipient_email",
@@ -179,10 +179,12 @@ class EmailLogAdmin(admin.ModelAdmin):
     search_fields = ("recipient_email", "subject", "sent_by__username")  
     actions = [trigger_monthly_email, trigger_monthly_email_task]  
 
+@admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ("user", "region", "subscribed")
     actions = [send_subscription_emails, send_subscription_emails_scheduler]
 
+@admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "notify_new_manuscripts")  
     search_fields = ("user__email",)
@@ -203,6 +205,6 @@ class UserAdmin(admin.ModelAdmin):
     list_display = ("username", "email", "is_active")
     actions = [block_email, block_email_and_domain]
 
-admin.site.register(EmailLog, EmailLogAdmin)
-admin.site.register(UserProfile, UserProfileAdmin)
-admin.site.register(Subscription, SubscriptionAdmin)  
+@admin.register(GlobalRegion)
+class GlobalRegionAdmin(admin.ModelAdmin):
+    """GlobalRegion Admin."""

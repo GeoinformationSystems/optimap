@@ -13,6 +13,10 @@ python manage.py createcachetable
 echo "OPTIMAP ENTRYPOINT | Apply database migrations"
 python manage.py migrate
 
+# Load regions data
+echo "OPTIMAP ENTRYPOINT | Load global regions data"
+python manage.py load_global_regions
+
 # Start server
 echo "OPTIMAP ENTRYPOINT | Starting server"
 # make the next process the main process, cf. https://www.baeldung.com/ops/docker-exec-process-replacement

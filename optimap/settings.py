@@ -17,7 +17,7 @@ import os
 import environ
 import dj_database_url
 import re
-
+from pathlib import Path
 # .env file in the same directory as settings.py
 env = environ.Env()
 environ.Env.read_env()
@@ -184,6 +184,12 @@ CACHES = {
     #}
 }
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+FIXTURE_DIRS = [
+    BASE_DIR / "fixtures",
+]
+
 SESSION_ENGINE = "django.contrib.sessions.backends.cached_db" # store session data in database, it's persistent and fast enough for us
 
 CACHE_MIDDLEWARE_ALIAS = env('OPTIMAP_CACHE', default='default')
@@ -343,3 +349,5 @@ IGNORABLE_404_URLS = (
 CSRF_TRUSTED_ORIGINS = [i.strip('[]') for i in env('CSRF_TRUSTED_ORIGINS', default='https://localhost:8000').split(',')]
 
 ADMINS = [('OPTIMAP', 'login@optimap.science')]
+
+FEED_MAX_ITEMS = 20

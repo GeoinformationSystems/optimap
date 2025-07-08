@@ -157,6 +157,21 @@ class BlockedDomain(models.Model):
     def __str__(self):
         return self.domain
 
+class GlobalRegion(models.Model):
+    CONTINENT = 'C'
+    OCEAN     = 'O'
+    TYPE_CHOICES = [
+        (CONTINENT, 'Continent'),
+        (OCEAN,     'Ocean'),
+    ]
+
+    name        = models.CharField(max_length=100, unique=True)
+    region_type = models.CharField(max_length=1, choices=TYPE_CHOICES)
+    source_url  = models.URLField()
+    license     = models.CharField(max_length=200)
+    geom        = models.MultiPolygonField(srid=4326)
+    last_loaded = models.DateTimeField(auto_now=True)
+
 class Source(models.Model):
     url_field                = models.URLField(max_length=999)
     harvest_interval_minutes = models.IntegerField(default=60*24*3)
@@ -199,4 +214,5 @@ class Source(models.Model):
             minutes=self.harvest_interval_minutes,
             name=f"Harvest Source {self.id}",
         )
+        
 Journal = Source  

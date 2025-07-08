@@ -145,3 +145,7 @@ publications/static/OPTIMAP_Data-Privacy-Concept.docx
 certbot/conf/
 
 certbot/www/
+
+publications/management/commands/marine_regions_iho.geojson
+
+publications/management/commands/world_continents.geojson

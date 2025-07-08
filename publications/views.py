@@ -14,6 +14,8 @@ from django.contrib import messages
 from django.views.decorators.cache import never_cache
 from django.urls import reverse
 import uuid
+from django.contrib.gis.serializers import geojson
+from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.timezone import now, get_default_timezone
 from datetime import datetime
@@ -23,7 +25,7 @@ from math import floor
 from urllib.parse import unquote
 from django.conf import settings
 from django.core.serializers import serialize
-from publications.models import BlockedEmail, BlockedDomain, Subscription, UserProfile, Publication
+from publications.models import BlockedEmail, BlockedDomain, Subscription, UserProfile, Publication, GlobalRegion 
 from django.contrib.auth import get_user_model
 User = get_user_model()
 import tempfile, os, glob
@@ -533,3 +535,9 @@ class RobotsView(View):
             content_type="text/plain"
         )
         return response
+
+def feeds_list(request):
+    regions = GlobalRegion.objects.all().order_by("region_type", "name")
+    return render(request,
+                  "feeds.html",
+                  {"regions": regions})
