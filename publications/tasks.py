@@ -1,37 +1,41 @@
 import logging
-logger = logging.getLogger(__name__)
-
 import os
-import json
-import subprocess
 import gzip
-import re
-import tempfile
 import glob
+import re
+import json
 import time
+import tempfile 
 import calendar
+import subprocess
+from pathlib import Path
 from datetime import datetime, timedelta, timezone as dt_timezone
+from urllib.parse import urlsplit, urlunsplit, quote
 import xml.dom.minidom
+
 import requests
 from pathlib import Path
 from bs4 import BeautifulSoup
-from urllib.parse import quote
+from xml.dom import minidom
+
 from django.conf import settings
 from django.core.serializers import serialize
 from django.core.mail import send_mail, EmailMessage
-from django.contrib.gis.geos import GEOSGeometry
 from django.utils import timezone
+from django.contrib.gis.geos import GEOSGeometry, GeometryCollection
 from django_q.tasks import schedule
 from django_q.models import Schedule
-from publications.models import Publication, HarvestingEvent, Source
-from .models import EmailLog, Subscription
 from django.contrib.auth import get_user_model
+from publications.models import Publication, HarvestingEvent, Source, EmailLog, Subscription
 from django.urls import reverse
-from geopy.geocoders import Nominatim
-from django.contrib.gis.geos import Point
-
 User = get_user_model()
+from oaipmh_scythe import Scythe
+from urllib.parse import urlsplit, urlunsplit
+from django.contrib.gis.geos import GeometryCollection
+from bs4 import BeautifulSoup
+import requests
 
+logger = logging.getLogger(__name__)
 BASE_URL = settings.BASE_URL
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', re.IGNORECASE)
 CACHE_DIR = Path(tempfile.gettempdir()) / 'optimap_cache'
@@ -77,57 +81,65 @@ def extract_timeperiod_from_html(soup: BeautifulSoup):
             return ([start] if start else [None]), ([end] if end else [None]) # If missing, return [None] for start and [None] for end
     return [None], [None]
 
-def parse_oai_xml_and_save_publications(content: bytes, event: HarvestingEvent) -> tuple[int, int, int]:
-    """
-    Parse OAI-PMH XML, save Publication records linked to `event`,
-    and return counts: (added, spatial, temporal).
-    """
-    try:
-        dom = xml.dom.minidom.parseString(content)
-    except Exception as e:
-        logger.error("Error parsing XML: %s", e)
-        return 0, 0, 0
 
-    for record in dom.getElementsByTagName("record"):
+def parse_oai_xml_and_save_publications(content, event):
+    source = event.source
+    parsed = urlsplit(source.url_field)
+    # if we have raw XML bytes, parse directly
+    if content:
+        DOMTree = xml.dom.minidom.parseString(content)
+        records = DOMTree.documentElement.getElementsByTagName("record")
+    else:
+        # otherwise use Scythe to fetch & page through records
+        base = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        harvester = Scythe(base)
+        records = harvester.list_records(metadata_prefix="oai_dc")
+
+    if not records:
+        logger.warning("No articles found in OAI-PMH response!")
+        return
+
+    for rec in records:
         try:
-            def get_text(tag_name: str) -> str | None:
-                nodes = record.getElementsByTagName(tag_name)
-                return (
-                    nodes[0].firstChild.nodeValue.strip()
-                    if nodes and nodes[0].firstChild else None
+            # for DOM‐parsed records, rec is an Element; for Scythe, rec.metadata is a dict
+            if hasattr(rec, "metadata"):
+                # Scythe record
+                identifiers = rec.metadata.get("identifier", []) + rec.metadata.get("relation", [])
+                get_field = lambda k: rec.metadata.get(k, [""])[0]
+            else:
+                # DOM record
+                id_nodes = rec.getElementsByTagName("dc:identifier")
+                identifiers = [n.firstChild.nodeValue.strip() for n in id_nodes if n.firstChild]
+                get_field = lambda tag: (
+                    rec.getElementsByTagName(tag)[0].firstChild.nodeValue.strip()
+                    if rec.getElementsByTagName(tag) and rec.getElementsByTagName(tag)[0].firstChild
+                    else None
                 )
+            http_urls = [u for u in identifiers if u and u.lower().startswith("http")]
+            view_urls = [u for u in http_urls if "/view/" in u]
+            identifier_value = (view_urls or http_urls or [None])[0]
 
-            ids = [
-                n.firstChild.nodeValue.strip()
-                for n in record.getElementsByTagName("dc:identifier")
-                if n.firstChild
-            ]
-            http_ids = [u for u in ids if u.lower().startswith("http")]
-            identifier = None
-            for u in http_ids:
-                if "/view/" in u:
-                    identifier = u
-                    break
-            if not identifier and http_ids:
-                identifier = http_ids[0]
+            # metadata fields
+            title_value    = get_field("title")    or get_field("dc:title")
+            abstract_text  = get_field("description") or get_field("dc:description")
+            journal_value  = get_field("publisher")   or get_field("dc:publisher")
+            date_value     = get_field("date")        or get_field("dc:date")
 
-            title          = get_text("dc:title")
-            abstract       = get_text("dc:description")
-            publisher_name = get_text("dc:publisher")
-            pub_date       = get_text("dc:date")
-
-            doi = None
-            for u in ids:
-                m = DOI_REGEX.search(u)
-                if m:
-                    doi = m.group(0)
+            # DOI extraction
+            doi_text = None
+            for u in identifiers:
+                if u and (m := DOI_REGEX.search(u)):
+                    doi_text = m.group(0)
                     break
 
-            if doi and Publication.objects.filter(doi=doi).exists():
+            # duplicate checks
+            if doi_text and Publication.objects.filter(doi=doi_text).exists():
+                logger.info("Skipping duplicate publication (DOI): %s", doi_text)
                 continue
             if identifier and Publication.objects.filter(url=identifier).exists():
                 continue
-            if not identifier or not identifier.startswith("http"):
+            if not identifier_value or not identifier_value.startswith("http"):
+                logger.warning("Skipping record with invalid URL: %s", identifier_value)
                 continue
 
             src = None
@@ -142,106 +154,76 @@ def parse_oai_xml_and_save_publications(content: bytes, event: HarvestingEvent) 
                 resp = requests.get(identifier, timeout=10)
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.content, "html.parser")
+                geom = extract_geometry_from_html(soup)
+                if geom:
+                    geom_object = geom
+                start_time, end_time = extract_timeperiod_from_html(soup)
+                period_start = start_time if isinstance(start_time, list) else [start_time] if start_time else []
+                period_end   = end_time   if isinstance(end_time, list)   else [end_time]   if end_time   else []
+            except Exception as fetch_err:
+                logger.error("Error fetching HTML for %s: %s", identifier_value, fetch_err)
 
-                ps_list, pe_list = extract_timeperiod_from_html(soup)
-
-                g = extract_geometry_from_html(soup)
-                if g:
-                    geom = g
-            
-                if src and getattr(src, "is_preprint", False) and geom.empty:
-                    try:
-                        loc = Nominatim(user_agent="optimap-tasks").geocode(src.homepage_url or src.url)
-                        if loc:
-                            geom = Point(loc.longitude, loc.latitude)
-                    except Exception as e:
-                        logger.debug(
-                            "Preprint geocode failed for %s: %s",
-                            src.name if src else identifier,
-                            e
-                        )
-            except Exception as e:
-                logger.debug(
-                    "Retrieval and metadata extraction failed for %s: %s",
-                    src.name if src else identifier,
-                    e
-                )
-                pass
-
-            Publication.objects.create(
-                title=title,
-                abstract=abstract,
-                publicationDate=pub_date,
-                url=identifier,
-                doi=doi,
-                source=src,
-                geometry=geom,
-                timeperiod_startdate=ps_list,
-                timeperiod_enddate=pe_list,
-                job=event,
+            # save
+            pub = Publication(
+                title                 = title_value,
+                abstract              = abstract_text,
+                publicationDate       = date_value,
+                url                   = identifier_value,
+                doi                   = doi_text,
+                source                = journal_value,
+                geometry              = geom_object,
+                timeperiod_startdate  = period_start,
+                timeperiod_enddate    = period_end,
+                job                   = event
             )
+            pub.save()
+
         except Exception as e:
             logger.error("Error parsing record: %s", e)
             continue
 
-    added_count    = Publication.objects.filter(job=event).count()
-    spatial_count  = Publication.objects.filter(job=event).exclude(geometry__isnull=True).count()
-    temporal_count = Publication.objects.filter(job=event).exclude(timeperiod_startdate=[]).count()
-    return added_count, spatial_count, temporal_count
+def harvest_oai_endpoint(source_id, user=None):
+    source = Source.objects.get(id=source_id)
+    event  = HarvestingEvent.objects.create(source=source, status="in_progress")
 
-def harvest_oai_endpoint(source_id: int, user=None) -> None:
-    """
-    Fetch OAI-PMH feed (HTTP or file://), create a HarvestingEvent,
-    parse & save publications, send summary email, and mark completion.
-    """
     try:
-        src = Source.objects.get(pk=source_id)
-    except Source.DoesNotExist:
-        logger.error("Source with id %s not found", source_id)
-        return
-    if src.url_field.startswith("file://"):
-        path = src.url_field[7:]
-        try:
-            with open(path, "rb") as f:
-                content = f.read()
-        except Exception as e:
-            logger.error("Failed to read local file %s: %s", path, e)
-            return
-    else:
-        try:
-            resp = requests.get(src.url_field, timeout=30)
-            resp.raise_for_status()
-            content = resp.content
-        except Exception as e:
-            logger.error("Harvesting failed for %s: %s", src.url_field, e)
-            return
+        response = requests.get(source.url_field)
+        response.raise_for_status()
 
-    low = (src.homepage_url or src.url_field or "").lower()
-    if any(x in low for x in ("arxiv.org", "biorxiv.org")) and not src.is_preprint:
-        src.is_preprint = True
-        src.save(update_fields=["is_preprint"])
+        parse_oai_xml_and_save_publications(response.content, event)
 
-    event = HarvestingEvent.objects.create(
-        source=src,
-        user=user,
-        status="in_progress",
-    )
-    added, spatial, temporal = parse_oai_xml_and_save_publications(content, event)
-    if user:
-        subject = "Harvesting Completed"
-        body = (
-            f"Collection: {src.collection_name}\n"
-            f"Source URL: {src.url_field}\n"
-            f"Number of added articles: {added}\n"
-            f"Number of articles with spatial metadata: {spatial}\n"
-            f"Number of articles with temporal metadata: {temporal}\n"
-            f"Harvest started : {event.started_at:%Y-%m-%d}\n"
+        event.status      = "completed"
+        event.completed_at = timezone.now()
+        event.save()
+        
+        new_count      = Publication.objects.filter(job=event).count()
+        spatial_count  = Publication.objects.filter(job=event).exclude(geometry__isnull=True).count()
+        temporal_count = Publication.objects.filter(job=event).exclude(timeperiod_startdate=[]).count()
+        subject = f"Harvesting Completed for {source.collection_name}"
+        completed_str = event.completed_at.strftime('%Y-%m-%d %H:%M:%S')
+        message = (
+            f"Harvesting job details:\n\n"
+            f"Number of added articles: {new_count}\n"
+            f"Number of articles with spatial metadata: {spatial_count}\n"
+            f"Number of articles with temporal metadata: {temporal_count}\n"
+            f"Collection used: {source.collection_name or 'N/A'}\n"
+            f"Journal: {source.url_field}\n"
+            f"Job started at: {event.started_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Job completed at: {completed_str}\n"
         )
-        send_mail(subject, body, settings.EMAIL_HOST_USER, [user.email])
-
-    event.status       = "completed"
-    event.completed_at = timezone.now()
-    event.save()
+        if user and user.email:
+            send_mail(
+                subject,
+                message,
+                settings.EMAIL_HOST_USER,
+                [user.email],
+                fail_silently=False,
+            )
+    except Exception as e:
+        logger.error("Harvesting failed for source %s: %s", source.url_field, str(e))
+        event.status = "failed"
+        event.completed_at = timezone.now()
+        event.save()
 
     return added, spatial, temporal
 
