@@ -6,7 +6,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "optimap.settings")
 django.setup()
 
 import unittest
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, TestCase
 from helium import *
 from django.contrib.auth import get_user_model
 from publications.models import BlockedEmail, BlockedDomain
@@ -14,7 +14,7 @@ from time import sleep
 
 User = get_user_model()
 
-class AdminBlockUserTests(TransactionTestCase):
+class AdminBlockUserTests(TestCase):
     def setUp(self):
         """Set up a superuser, test user, and start the browser before each test."""
         self.superuser, _ = User.objects.get_or_create(

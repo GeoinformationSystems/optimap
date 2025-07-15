@@ -55,7 +55,6 @@ class GeoFeedTestCase(TestCase):
         feed_urls = {
             "georss": "/feed/georss/",
             "geoatom": "/feed/geoatom/",
-            "w3cgeo": "/feed/w3cgeo/",
         }
 
         if feed_type not in feed_urls:

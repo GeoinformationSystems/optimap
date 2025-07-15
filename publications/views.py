@@ -14,6 +14,8 @@ from django.contrib import messages
 from django.views.decorators.cache import never_cache
 from django.urls import reverse
 import uuid
+from django.contrib.gis.serializers import geojson
+from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.timezone import now, get_default_timezone
 from datetime import datetime
@@ -23,7 +25,7 @@ from math import floor
 from urllib.parse import unquote
 from django.conf import settings
 from django.core.serializers import serialize
-from publications.models import BlockedEmail, BlockedDomain, Subscription, UserProfile, Publication
+from publications.models import BlockedEmail, BlockedDomain, Subscription, UserProfile, Publication, GlobalRegion 
 from django.contrib.auth import get_user_model
 User = get_user_model()
 import tempfile, os, glob
@@ -38,6 +40,7 @@ LOGIN_TOKEN_TIMEOUT_SECONDS = 10 * 60
 EMAIL_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 ACCOUNT_DELETE_TOKEN_TIMEOUT_SECONDS = 10 * 60
 USER_DELETE_TOKEN_PREFIX = "user_delete_token"
+EMAIL_CONFIRMATION_TOKEN_PREFIX = "email_confirmation_"
 
 # ------------------------------
 # Download Endpoints
@@ -46,14 +49,13 @@ USER_DELETE_TOKEN_PREFIX = "user_delete_token"
 @require_GET
 def download_geojson(request):
     """
-    Returns the latest GeoJSON dump file, gzipped if the client accepts it.
+    Returns the latest GeoJSON dump file, gzipped if the client accepts it,
+    but always with Content-Type: application/json.
     """
     cache_dir = Path(tempfile.gettempdir()) / "optimap_cache"
     cache_dir.mkdir(exist_ok=True)
-
-    # regenerate and find latest geojson dump
-    path = regenerate_geojson_cache()
-    gzip_path = Path(str(path) + ".gz")
+    json_path = regenerate_geojson_cache()
+    gzip_path = Path(str(json_path) + ".gz")
     accept_enc = request.META.get('HTTP_ACCEPT_ENCODING', '')
 
     if 'gzip' in accept_enc and gzip_path.exists():
@@ -64,13 +66,16 @@ def download_geojson(request):
             filename=gzip_path.name
         )
         response['Content-Encoding'] = 'gzip'
+        response['Content-Disposition'] = f'attachment; filename="{gzip_path.name}"'
     else:
+        # Serve the plain JSON
         response = FileResponse(
-            open(path, 'rb'),
+            open(json_path, 'rb'),
             content_type="application/json",
             as_attachment=True,
-            filename=Path(path).name
+            filename=Path(json_path).name
         )
+        response['Content-Disposition'] = f'attachment; filename="{Path(json_path).name}"'
     return response
 
 
@@ -85,7 +90,7 @@ def generate_geopackage():
     ds = driver.CreateDataSource(gpkg_path)
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
-    layer = ds.CreateLayer("publications", srs, ogr.wkbUnknown)
+    layer = ds.CreateLayer("publications", srs, ogr.wkbGeometryCollection)
 
     for name in ("title", "abstract", "doi", "source"):
         field_defn = ogr.FieldDefn(name, ogr.OFTString)
@@ -98,7 +103,7 @@ def generate_geopackage():
         feat.SetField("title", pub.title or "")
         feat.SetField("abstract", pub.abstract or "")
         feat.SetField("doi", pub.doi or "")
-        feat.SetField("source", pub.source or "")
+        feat.SetField("source", pub.source.name if pub.source else "")
         if pub.geometry:
             wkb = pub.geometry.wkb
             geom = ogr.CreateGeometryFromWkb(wkb)
@@ -115,20 +120,20 @@ def download_geopackage(request):
     """
     Returns the latest GeoPackage dump file.
     """
-    path = regenerate_geopackage_cache()
-    if not os.path.exists(path):
-        raise Http404('GeoPackage dump not found')
-    return FileResponse(
-        open(path, 'rb'),
-        content_type="application/geopackage+sqlite3",
-        as_attachment=True,
-        filename=Path(path).name
-    )
+    gpkg_path = regenerate_geopackage_cache()
+    if not gpkg_path or not os.path.exists(gpkg_path):
+        raise Http404("GeoPackage not available.")
+    return FileResponse(open(gpkg_path, 'rb'), as_attachment=True, filename=os.path.basename(gpkg_path))
 
 
 def main(request):
     return render(request, "main.html")
 
+def about(request):
+    return render(request, 'about.html')
+
+def accessibility(request):
+    return render(request, 'accessibility.html')
 
 def loginres(request):
     email = request.POST.get('email', False)
@@ -138,14 +143,14 @@ def loginres(request):
             'error': {
                 'class': 'danger',
                 'title': 'Login failed!',
-                'text': 'You attempted to login using an email that is blocked. Please contact support for assistance.'
-            }
+                'text': f"You attempted to login using an email that is blocked. Please contact support for assistance: <a href=\"{request.site.domain}/contact\">{request.site.domain}/contact</a>"
+                }
         })
-
-    subject = 'OPTIMAP Login'
-    link = get_login_link(request, email)
-    valid = floor(LOGIN_TOKEN_TIMEOUT_SECONDS / 60)
-    body = f"""Hello {email} !
+    else:
+        subject = 'OPTIMAP Login'
+        link = get_login_link(request, email)
+        valid = floor(LOGIN_TOKEN_TIMEOUT_SECONDS / 60)
+        body = f"""Hello {email} !
 
 You requested that we send you a link to log in to OPTIMAP at {request.site.domain}:
 
@@ -154,36 +159,41 @@ You requested that we send you a link to log in to OPTIMAP at {request.site.doma
 Please click on the link to log in.
 The link is valid for {valid} minutes.
 """
-    logger.info('Login process started for user %s', email)
-    try:
-        email_message = EmailMessage(
-            subject=subject,
-            body=body,
-            from_email=settings.EMAIL_HOST_USER,
-            to=[email],
-            headers={'OPTIMAP': request.site.domain}
-        )
-        result = email_message.send()
-        logger.info('%s sent login email to %s with the result: %s', settings.EMAIL_HOST_USER, email_message.recipients(), result)
-        if str(get_connection().__class__.__module__).endswith("smtp"):
-            with imaplib.IMAP4_SSL(settings.EMAIL_HOST_IMAP, port=settings.EMAIL_PORT_IMAP) as imap:
-                message = str(email_message.message()).encode()
-                imap.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
-                folder = settings.EMAIL_IMAP_SENT_FOLDER
-                imap.append(folder, '\\Seen', imaplib.Time2Internaldate(time.time()), message)
-                logger.debug('Saved email to IMAP folder {folder}')
-        return render(request, 'login_response.html', {'email': email, 'valid_minutes': valid})
-    except Exception as ex:
-        logger.exception('Error sending login email to %s from %s', email, settings.EMAIL_HOST_USER)
-        logger.error(ex)
-        return render(request, "error.html", {
-            'error': {
-                'class': 'danger',
-                'title': 'Login failed!',
-                'text': 'Error sending the login email. Please try again or contact us!'
-            }
-        })
+        logger.info('Login process started for user %s', email)
+        try:
+            email_message = EmailMessage(
+                subject=subject,
+                body=body,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[email],
+                headers={'OPTIMAP': request.site.domain}
+            )
+            result = email_message.send()
+            logger.info('%s sent login email to %s with the result: %s', settings.EMAIL_HOST_USER, email_message.recipients(), result)
+        except Exception as ex:
+            logger.exception('Error sending login email to %s from %s', email, settings.EMAIL_HOST_USER)
+            logger.error(ex)
+            return render(request, "error.html", {
+                'error': {
+                    'class': 'danger',
+                    'title': 'Login failed!',
+                    'text': 'Error sending the login email. Please try again or contact us!'
+                }
+            })
 
+        try:
+            if str(get_connection().__class__.__module__).endswith("smtp"):
+                with imaplib.IMAP4_SSL(settings.EMAIL_HOST_IMAP, port=settings.EMAIL_PORT_IMAP) as imap:
+                    message = str(email_message.message()).encode()
+                    imap.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
+                    folder = settings.EMAIL_IMAP_SENT_FOLDER
+                    imap.append('"{folder}"', '\\Seen', imaplib.Time2Internaldate(time.time()), str(message).encode('utf-8'))
+                    logger.debug('Saved email to IMAP folder "%s"', folder)
+        except Exception as ex:
+            logger.exception('Error saving sent email to %s for %s', email, settings.EMAIL_HOST_USER)
+            logger.error(ex)
+
+        return render(request, 'login_response.html', {'email': email, 'valid_minutes': valid})
 
 def privacy(request):
     return render(request, 'privacy.html')
@@ -236,7 +246,7 @@ def data(request):
         'last_gpkg':       last_gpkg.name if last_gpkg else None,
     })
 
-def Confirmationlogin(request):
+def confirmation_login(request):
     return render(request, 'confirmation_login.html')
 
 
@@ -259,20 +269,19 @@ def authenticate_via_magic_link(request, token):
         })
     user = User.objects.filter(email=email).first()
     if user:
-        if user.deleted:
-            user.deleted = False
-            user.deleted_at = None
-            user.is_active = True  
-            user.save()
-            is_new = False  
-        else:
-            is_new = False  
-    else:
+        is_new = False
+        needs_confirmation = False
+        login_user(request, user)
+    elif request.GET.get('confirmed', None) == 'true':
         user = User.objects.create_user(username=email, email=email)
-        is_new = True  
-    login_user(request, user)
-    cache.delete(token)
-    return render(request, "confirmation_login.html", {'is_new': is_new})
+        is_new = True
+        needs_confirmation = False
+        login_user(request, user)
+    else:
+        is_new = True
+        needs_confirmation = True
+    
+    return render(request, "confirmation_login.html", {'email': email, 'token': token, 'is_new': is_new, 'needs_confirmation': needs_confirmation})
 
 @login_required
 def customlogout(request):
@@ -309,7 +318,7 @@ def add_subscriptions(request):
         user_name = currentuser.username if currentuser.is_authenticated else None
         start_date_object = datetime.strptime(start_date, '%m/%d/%Y')
         end_date_object = datetime.strptime(end_date, '%m/%d/%Y')
-        
+
         subscription = Subscription(
             search_term=search_term,
             timeperiod_startdate=start_date_object,
@@ -320,7 +329,7 @@ def add_subscriptions(request):
         subscription.save()
         return HttpResponseRedirect('/subscriptions/')
 
-@login_required 
+@login_required
 def unsubscribe(request):
     """Handles unsubscription requests from emails."""
     user = request.user
@@ -330,17 +339,17 @@ def unsubscribe(request):
     if unsubscribe_all:
         Subscription.objects.filter(user=user).update(subscribed=False)
         messages.success(request, "You have been unsubscribed from all subscriptions.")
-        return redirect("/") 
+        return redirect("/")
     if search_term:
-        exact_search_term = unquote(search_term).strip() 
+        exact_search_term = unquote(search_term).strip()
         subscription = get_object_or_404(Subscription, user=user, search_term=exact_search_term)
         if not subscription:
             messages.warning(request, f"No subscription found for '{search_term}'.")
-            return redirect("/") 
+            return redirect("/")
         subscription.subscribed = False
         subscription.save()
         messages.success(request, f"You have unsubscribed from '{search_term}'.")
-        return redirect("/") 
+        return redirect("/")
 
     return HttpResponse("Invalid request.", status=400)
 
@@ -375,8 +384,8 @@ def change_useremail(request):
         return render(request, 'changeuser.html')
     token = secrets.token_urlsafe(32)
     cache.set(
-        f"email_confirmation_{email_new}",
-        {"token": token, "old_email": request.user.email}, 
+        f"{EMAIL_CONFIRMATION_TOKEN_PREFIX}_{email_new}",
+        {"token": token, "old_email": request.user.email},
         timeout=EMAIL_CONFIRMATION_TIMEOUT_SECONDS,
     )
     confirm_url = request.build_absolute_uri(
@@ -400,11 +409,11 @@ Thank you for using OPTIMAP!
     return render(request, 'changeuser.html')
 
 def confirm_email_change(request, token, email_new):
-    cached_data = cache.get(f"email_confirmation_{email_new}")
+    cached_data = cache.get(f"{EMAIL_CONFIRMATION_TOKEN_PREFIX}_{email_new}")
     if not cached_data:
         messages.error(request, "Invalid or expired confirmation link.")
         return HttpResponseRedirect("/")
-    if isinstance(cached_data, str):  
+    if isinstance(cached_data, str):
         messages.error(request, "Cache error: Expected dictionary, got string.")
         return HttpResponseRedirect("/")
     stored_token = cached_data.get("token")
@@ -417,7 +426,7 @@ def confirm_email_change(request, token, email_new):
         messages.error(request, "User not found.")
         return HttpResponseRedirect("/")
     user.email = email_new
-    user.username = email_new  
+    user.username = email_new
     user.save()
     contactURL = f"{settings.BASE_URL}/contact"
     notify_subject = 'Your OPTIMAP Email Was Changed'
@@ -481,8 +490,8 @@ def confirm_account_deletion(request, token):
             messages.error(request, "You are not authorized to delete this account.")
             return redirect(reverse('optimap:main'))
         request.session[USER_DELETE_TOKEN_PREFIX] = token
-        request.session.modified = True 
-        request.session.save()  
+        request.session.modified = True
+        request.session.save()
         messages.warning(request, "Please confirm your account deletion. Your contributed data will remain on the platform.")
         return redirect(reverse('optimap:usersettings'))
     except Exception as e:
@@ -503,13 +512,8 @@ def finalize_account_deletion(request):
         messages.error(request, "You are not authorized to delete this account.")
         return redirect(reverse('optimap:main'))
     user = get_object_or_404(User, id=user_id)
-    if user.deleted:
-        messages.warning(request, "This account has already been deleted.")
-        return redirect(reverse('optimap:usersettings'))
     try:
-        user.deleted = True
-        user.deleted_at = now()
-        user.save()
+        user.delete()
         logout(request)
         messages.success(request, "Your account has been successfully deleted.")
         return redirect(reverse('optimap:main'))
@@ -521,7 +525,7 @@ def finalize_account_deletion(request):
         cache.delete(f"{USER_DELETE_TOKEN_PREFIX}_{token}")
         if USER_DELETE_TOKEN_PREFIX in request.session:
             del request.session[USER_DELETE_TOKEN_PREFIX]
-            request.session.modified = True  
+            request.session.modified = True
 
 class RobotsView(View):
     http_method_names = ['get']
@@ -531,3 +535,9 @@ class RobotsView(View):
             content_type="text/plain"
         )
         return response
+
+def feeds_list(request):
+    regions = GlobalRegion.objects.all().order_by("region_type", "name")
+    return render(request,
+                  "feeds.html",
+                  {"regions": regions})

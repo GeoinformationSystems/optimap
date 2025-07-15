@@ -1,0 +1,533 @@
+[
+  {
+    "model": "publications.source",
+    "pk": 1,
+    "fields": {
+      "name": "Volcanica",
+      "issn_l": "2610-3540",
+      "openalex_id": "https://openalex.org/S26103540",
+      "openalex_url": "https://openalex.org/S26103540",
+      "publisher_name": "Volcanica Society",
+      "works_count": 12,
+      "is_oa": false,
+      "cited_by_count": null
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 101,
+    "fields": {
+      "status": "p",
+      "title": "Eruption Dynamics of New Fissure on Reykjanes Peninsula",
+      "abstract": "High-resolution analysis of lava flow progression.",
+      "publicationDate": "2023-01-15",
+      "doi": "10.5710/volcanica.12345",
+      "url": "https://www.jvolcanica.org/ojs/index.php/volcanica/article/view/12345",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON((-10 35, 30 35, 30 60, -10 60, -10 35)))",
+      "creationDate": "2024-06-10T08:00:00Z",
+      "lastUpdate": "2024-06-10T08:00:00Z",
+      "source": 1,
+      "timeperiod_startdate": ["2022-05-01"],
+      "timeperiod_enddate": ["2022-10-01"],
+      "provenance": "Imported from DOAJ on 2024-06-10."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 102,
+    "fields": {
+      "status": "d",
+      "title": "Preliminary Survey of Volcanic Gas Emissions",
+      "abstract": "",
+      "publicationDate": null,
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T08:05:00Z",
+      "lastUpdate": "2024-06-10T08:05:00Z",
+      "source": 1,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Draft entry for Volcanica"
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 2,
+    "fields": {
+      "name": "Journal of Spatial Information Science",
+      "issn_l": "1948-660X",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": null,
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 201,
+    "fields": {
+      "status": "p",
+      "title": "Integrating Lidar and Photogrammetry for Urban Mapping",
+      "abstract": "An end-to-end pipeline for 3D city models.",
+      "publicationDate": "2022-08-20",
+      "doi": "10.5311/JSIS.2022.08.001",
+      "url": "https://josis.org/index.php/josis/article/view/08-001",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON((8.681 50.112,8.683 50.113,8.684 50.111,8.681 50.112)))",
+      "creationDate": "2024-06-10T09:00:00Z",
+      "lastUpdate": "2024-06-10T09:00:00Z",
+      "source": 2,
+      "timeperiod_startdate": ["2021-01-01"],
+      "timeperiod_enddate": ["2021-12-31"],
+      "provenance": "Imported from JOSIS archive"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 202,
+    "fields": {
+      "status": "p",
+      "title": "Spatial Database Performance Benchmarks",
+      "abstract": "Comparing PostGIS, Oracle Spatial, and SQL Server.",
+      "publicationDate": "2023-03-15",
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T09:05:00Z",
+      "lastUpdate": "2024-06-10T09:05:00Z",
+      "source": 2,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Manual entry – missing DOI/URL"
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 3,
+    "fields": {
+      "name": "European Journal of Transport and Infrastructure Research",
+      "issn_l": "1567-7133",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": null,
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 301,
+    "fields": {
+      "status": "p",
+      "title": "Electrification of European Rail Networks",
+      "abstract": "Economic and environmental impacts of railway electrification.",
+      "publicationDate": "2021-05-10",
+      "doi": "10.1234/EJTIR.2021.05.010",
+      "url": "https://journals.open.tudelft.nl/ejtir/article/view/2021-05-010",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POINT(52.379 4.900))",
+      "creationDate": "2024-06-10T10:00:00Z",
+      "lastUpdate": "2024-06-10T10:00:00Z",
+      "source": 3,
+      "timeperiod_startdate": ["2020-01-01"],
+      "timeperiod_enddate": ["2020-12-31"],
+      "provenance": "Imported from EJTIR online"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 302,
+    "fields": {
+      "status": "p",
+      "title": "Modal Split Analysis in Urban Regions",
+      "abstract": "A survey of travel behavior patterns.",
+      "publicationDate": null,
+      "doi": null,
+      "url": "https://journals.open.tudelft.nl/ejtir/article/view/2022-02-015",
+      "geometry": null,
+      "creationDate": "2024-06-10T10:05:00Z",
+      "lastUpdate": "2024-06-10T10:05:00Z",
+      "source": 3,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "URL only; missing DOI & geometry"
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 4,
+    "fields": {
+      "name": "AGILE: GIScience Series",
+      "issn_l": "2700-8150",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": null,
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 401,
+    "fields": {
+      "status": "p",
+      "title": "Participatory Mapping for Coastal Resilience",
+      "abstract": "Case studies from Mediterranean communities.",
+      "publicationDate": "2020-11-05",
+      "doi": "10.5194/ags-2020-05",
+      "url": "https://agile-giss.copernicus.org/articles/20/05/2020/",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON((3.0 43.0,3.1 43.1,3.2 43.0,3.0 43.0)))",
+      "creationDate": "2024-06-10T11:00:00Z",
+      "lastUpdate": "2024-06-10T11:00:00Z",
+      "source": 4,
+      "timeperiod_startdate": ["2019-01-01"],
+      "timeperiod_enddate": ["2019-12-31"],
+      "provenance": "Imported from Copernicus AGILE archive"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 402,
+    "fields": {
+      "status": "d",
+      "title": "Edge Computing for Geoanalytics",
+      "abstract": "",
+      "publicationDate": null,
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T11:05:00Z",
+      "lastUpdate": "2024-06-10T11:05:00Z",
+      "source": 4,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Draft entry; minimal fields"
+    }
+  },
+  {
+    "model": "publications.source",
+    "pk": 1,
+    "fields": {
+      "name": "Volcanica",
+      "issn_l": "2610-3540",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "https://www.jvolcanica.org/ojs/index.php/volcanica",
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 102,
+    "fields": {
+      "status": "d",
+      "title": "Preliminary Survey of Volcanic Gas Emissions",
+      "abstract": "",
+      "publicationDate": null,
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T08:05:00Z",
+      "lastUpdate": "2024-06-10T08:05:00Z",
+      "source": 1,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Draft entry for Volcanica"
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 2,
+    "fields": {
+      "name": "Journal of Spatial Information Science",
+      "issn_l": "1948-660X",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "https://josis.org/index.php/josis/index",
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 201,
+    "fields": {
+      "status": "p",
+      "title": "Integrating Lidar and Photogrammetry for Urban Mapping",
+      "abstract": "An end-to-end pipeline for 3D city models.",
+      "publicationDate": "2022-08-20",
+      "doi": "10.5311/JSIS.2022.08.001",
+      "url": "https://josis.org/index.php/josis/article/view/08-001",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON((8.681 50.112,8.683 50.113,8.684 50.111,8.681 50.112)))",
+      "creationDate": "2024-06-10T09:00:00Z",
+      "lastUpdate": "2024-06-10T09:00:00Z",
+      "source": 2,
+      "timeperiod_startdate": ["2021-01-01"],
+      "timeperiod_enddate": ["2021-12-31"],
+      "provenance": "Imported from JOSIS archive"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 202,
+    "fields": {
+      "status": "p",
+      "title": "Spatial Database Performance Benchmarks",
+      "abstract": "Comparing PostGIS, Oracle Spatial, and SQL Server.",
+      "publicationDate": "2023-03-15",
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T09:05:00Z",
+      "lastUpdate": "2024-06-10T09:05:00Z",
+      "source": 2,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Manual entry – missing DOI/URL"
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 3,
+    "fields": {
+      "name": "European Journal of Transport and Infrastructure Research",
+      "issn_l": "1567-7133",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "https://journals.open.tudelft.nl/ejtir",
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 301,
+    "fields": {
+      "status": "p",
+      "title": "Electrification of European Rail Networks",
+      "abstract": "Economic and environmental impacts of railway electrification.",
+      "publicationDate": "2021-05-10",
+      "doi": "10.1234/EJTIR.2021.05.010",
+      "url": "https://journals.open.tudelft.nl/ejtir/article/view/2021-05-010",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POINT(52.379 4.900))",
+      "creationDate": "2024-06-10T10:00:00Z",
+      "lastUpdate": "2024-06-10T10:00:00Z",
+      "source": 3,
+      "timeperiod_startdate": ["2020-01-01"],
+      "timeperiod_enddate": ["2020-12-31"],
+      "provenance": "Imported from EJTIR online"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 302,
+    "fields": {
+      "status": "p",
+      "title": "Modal Split Analysis in Urban Regions",
+      "abstract": "A survey of travel behavior patterns.",
+      "publicationDate": null,
+      "doi": null,
+      "url": "https://journals.open.tudelft.nl/ejtir/article/view/2022-02-015",
+      "geometry": null,
+      "creationDate": "2024-06-10T10:05:00Z",
+      "lastUpdate": "2024-06-10T10:05:00Z",
+      "source": 3,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "URL only; missing DOI & geometry"
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 4,
+    "fields": {
+      "name": "AGILE: GIScience Series",
+      "issn_l": "2700-8150",
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "https://agile-giss.copernicus.org",
+      "abbreviated_title": null,
+      "is_oa": false,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 401,
+    "fields": {
+      "status": "p",
+      "title": "Participatory Mapping for Coastal Resilience",
+      "abstract": "Case studies from Mediterranean communities.",
+      "publicationDate": "2020-11-05",
+      "doi": "10.5194/ags-2020-05",
+      "url": "https://agile-giss.copernicus.org/articles/20/05/2020/",
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON((3.0 43.0,3.1 43.1,3.2 43.0,3.0 43.0)))",
+      "creationDate": "2024-06-10T11:00:00Z",
+      "lastUpdate": "2024-06-10T11:00:00Z",
+      "source": 4,
+      "timeperiod_startdate": ["2019-01-01"],
+      "timeperiod_enddate": ["2019-12-31"],
+      "provenance": "Imported from Copernicus AGILE archive"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 402,
+    "fields": {
+      "status": "d",
+      "title": "Edge Computing for Geoanalytics",
+      "abstract": "",
+      "publicationDate": null,
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T11:05:00Z",
+      "lastUpdate": "2024-06-10T11:05:00Z",
+      "source": 4,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Draft entry; minimal fields"
+    }
+  },
+  {
+    "model": "publications.source",
+    "pk": 5,
+    "fields": {
+      "name": "arXiv",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "https://arxiv.org",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": true
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 501,
+    "fields": {
+      "status": "p",
+      "title": "Quantum Entanglement in Large-Scale Systems",
+      "abstract": "An exploration of entanglement scaling in quantum networks.",
+      "publicationDate": null,
+      "doi": "10.48550/arXiv.2101.00001",
+      "url": "https://arxiv.org/abs/2101.00001",
+      "geometry": null,
+      "creationDate": "2024-06-10T12:00:00Z",
+      "lastUpdate": "2024-06-10T12:00:00Z",
+      "source": 5,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Imported from arXiv"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 502,
+    "fields": {
+      "status": "d",
+      "title": "Early Results on Neural Rendering",
+      "abstract": "",
+      "publicationDate": null,
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T12:05:00Z",
+      "lastUpdate": "2024-06-10T12:05:00Z",
+      "source": 5,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Draft entry for preprint test"
+    }
+  },
+  {
+    "model": "publications.source",
+    "pk": 6,
+    "fields": {
+      "name": "bioRxiv",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "https://www.biorxiv.org",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": true
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 601,
+    "fields": {
+      "status": "p",
+      "title": "CRISPR-based Gene Drives in Mosquito Populations",
+      "abstract": "Modeling gene‐drive spread through wild Anopheles populations.",
+      "publicationDate": "2023-09-12",
+      "doi": "10.1101/2023.09.12.558924",
+      "url": "https://www.biorxiv.org/content/10.1101/2023.09.12.558924v1",
+      "geometry": null,
+      "creationDate": "2024-06-10T13:00:00Z",
+      "lastUpdate": "2024-06-10T13:00:00Z",
+      "source": 6,
+      "timeperiod_startdate": ["2023-01-01"],
+      "timeperiod_enddate": ["2023-12-31"],
+      "provenance": "Imported from bioRxiv"
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 602,
+    "fields": {
+      "status": "d",
+      "title": "Preprint on Single-Cell Sequencing Pipelines",
+      "abstract": "",
+      "publicationDate": null,
+      "doi": null,
+      "url": null,
+      "geometry": null,
+      "creationDate": "2024-06-10T13:05:00Z",
+      "lastUpdate": "2024-06-10T13:05:00Z",
+      "source": 6,
+      "timeperiod_startdate": [],
+      "timeperiod_enddate": [],
+      "provenance": "Draft entry for bioRxiv preprint test"
+    }
+  }
+]

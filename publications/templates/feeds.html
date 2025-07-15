@@ -1,0 +1,59 @@
+{% extends "base.html" %} {% block content %}
+<div class="container px-4 py-8 max-w-3xl text-wrap">
+
+  <h1 class="text-3xl mb-6 py-4">Predefined Feeds</h1>
+
+  <p class="lead">Follow your favourite countinent or ocean with these predefined feeds.</p>
+
+
+  <ul class="list-disc list-inside space-y-2">
+    {% for region in regions %}
+    <li class="flex flex-wrap items-center space-x-2">
+      <strong>{{ region.name }}</strong> ({{ region.get_region_type_display }}):
+
+      {# GeoRSS feed link #}
+      <a
+        href="{% url 'optimap:feed-georss-by-slug' region.name|slugify %}"
+        class="text-blue-600 hover:underline"
+        title="GeoRSS feed for {{ region.name }}"
+      >
+        GeoRSS
+      </a>
+      <span>|</span>
+
+      {# Atom feed link #}
+      <a
+        href="{% url 'optimap:feed-geoatom-by-slug' region.name|slugify %}"
+        class="text-blue-600 hover:underline"
+        title="Atom feed for {{ region.name }}"
+      >
+        GeoAtom
+      </a>
+
+      <small class="text-gray-500">
+        (updated {{ region.last_loaded|date:"Y-m-d H:i" }})
+      </small>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <strong class="font-semibold mt-8 mb-4">Sources &amp; Licenses</strong>
+
+  <ul class="list-disc list-inside space-y-2 text-sm text-gray-700">
+    {% for region in regions %}
+    <li class="flex items-center space-x-2">
+      <span class="flex-shrink-0"></span>
+      <a
+        href="{{ region.source_url }}"
+        title="Source for geospatial extent of {{ region.name }}"
+        target="_blank"
+        class="flex-1 min-w-0 truncate text-blue-600 hover:underline"
+      >
+        {{ region.name }}
+      </a>
+      <span class="flex-shrink-0">(<a href="{{ region.license }}">license URL</a>)</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

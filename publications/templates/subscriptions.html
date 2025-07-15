@@ -32,6 +32,7 @@
     </div>
     <div id="collapseFour" class="collapse" aria-labelledby="headingFour" data-parent="#accordion">
       <div class="card-body">
+        <span class="text-wrap">Note that you can avoid to divulge your own (private) location by choosing a larger area.</span>
         <form id = "form1" class="form" method="POST" action="{% url 'optimap:addsubscriptions' %}">
           {% csrf_token %}
           <div class="form-group">            

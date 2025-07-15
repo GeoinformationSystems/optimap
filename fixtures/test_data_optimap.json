@@ -1,7 +1,24 @@
 [
   {
+    "model": "publications.source",
+    "pk": 9,
+    "fields": {
+      "name": "OPTIMAP Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": true
+    }
+  },
+  {
     "model": "publications.publication",
-    "pk": 1,
+    "pk": 900,
     "fields": {
       "status": "p",
       "title": "The First Article",
@@ -12,7 +29,7 @@
       "geometry": "SRID=4326;GEOMETRYCOLLECTION (POINT (7.595730774920725 51.96944097112328), POLYGON ((7.599984296478425 51.984257653537384, 7.5715788777530975 51.97057414651397, 7.570122189613329 51.950602187631205, 7.580319006590855 51.93825551711683, 7.609054957094401 51.93035649564658, 7.659674869951374 51.942256350721436, 7.6833460522228165 51.968514669138415, 7.665137450475669 51.99229098076532, 7.626171042736502 51.98982421450293, 7.599984296478425 51.984257653537384)))",
       "creationDate": "2022-10-24T12:10:53.086Z",
       "lastUpdate": "2022-10-24T12:10:53.086Z",
-      "source": "OPTIMAP Test Journal",
+      "source": 9,
       "timeperiod_startdate": "[\"2020-02-02\"]",
       "timeperiod_enddate": "[\"2022-02-20\"]",
       "provenance": "Manually added from file test_data.json using the Django management script."
@@ -20,7 +37,7 @@
   },
   {
     "model": "publications.publication",
-    "pk": 2,
+    "pk": 901,
     "fields": {
       "status": "p",
       "title": "Paper Two",
@@ -31,7 +48,7 @@
       "geometry": "SRID=4326;GEOMETRYCOLLECTION (LINESTRING (9.754609563397707 52.36630414438588, 9.813062794192035 52.41569645624003, 10.141300167111496 52.36904961184797, 10.518997966087937 52.330597538337116, 10.838242534270051 52.311358956793185, 11.058566250338231 52.220550088821824, 11.535184901427073 52.15714903642342, 12.272594889905236 52.24258143981572, 12.618817872299417 52.35532056817789, 12.911084026269464 52.2976119913985, 13.144896949445211 52.50063147184562, 13.396695482095708 52.517051586549286))",
       "creationDate": "2022-10-24T12:10:53.086Z",
       "lastUpdate": "2022-10-24T12:10:53.086Z",
-      "source": "OPTIMAP Test Journal",
+      "source": 9,
       "timeperiod_startdate": "[\"2010-01-01\"]",
       "timeperiod_enddate": "[\"2012-12-12\"]",
       "provenance": "Manually added from file test_data.json using the Django management script."
@@ -39,7 +56,7 @@
   },
   {
     "model": "publications.publication",
-    "pk": 3,
+    "pk": 902,
     "fields": {
       "status": "p",
       "title": "Paper 3",
@@ -50,7 +67,7 @@
       "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((13.558502 50.990421, 13.558502 51.094036, 13.864746 51.094036, 13.864746 50.990421, 13.558502 50.990421)))",
       "creationDate": "2022-10-24T12:10:53.086Z",
       "lastUpdate": "2022-10-24T12:10:53.086Z",
-      "source": "OPTIMAP Test Journal",
+      "source": 9,
       "timeperiod_startdate": "[\"2023\"]",
       "timeperiod_enddate": "[\"2024\"]",
       "provenance": "Manually added from file test_data.json using the Django management script."

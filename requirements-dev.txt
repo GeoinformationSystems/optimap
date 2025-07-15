@@ -3,3 +3,4 @@ pyvirtualdisplay
 responses
 xmldiff
 fiona
+coverage

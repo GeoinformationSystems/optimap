@@ -36,3 +36,6 @@ psycopg2-binary==2.9.10
 packaging==21.3
 pycryptodome==3.21.0
 humanize==4.10.0
+pyalex>=0.4.0
+python-stdnum>=2.0.0
+geopy>=2.4.1

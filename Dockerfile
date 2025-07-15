@@ -34,11 +34,12 @@ RUN set -ex && \
     pip install --no-cache-dir -r /tmp/requirements.txt && \
     rm -rf /root/.cache/
 
-COPY . /code/
+COPY . /code
 
-RUN python manage.py collectstatic --noinput
+RUN chmod a+x /code/etc/manage-and-run.sh
 
 EXPOSE 8000
 
 #CMD ["gunicorn", "--bind", ":8000", "--workers", "2", "optimap.wsgi"]
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000" ]
+#CMD ["python", "manage.py", "runserver", "0.0.0.0:8000" ]
+ENTRYPOINT [ "/code/etc/manage-and-run.sh" ]

@@ -1,0 +1,411 @@
+[
+  {
+    "model": "publications.source",
+    "pk": 1001,
+    "fields": {
+      "name": "Africa Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1010,
+    "fields": {
+      "status": "p",
+      "title": "First Africa Publication",
+      "abstract": "Sample publication covering a cluster of ca. 5–6 major cities in West Africa.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/africa1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((3.0000 4.5000, 9.0000 4.5000, 9.0000 12.5000, 3.0000 12.5000, 3.0000 4.5000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1001,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Africa multi-city test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 1002,
+    "fields": {
+      "name": "Asia Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1020,
+    "fields": {
+      "status": "p",
+      "title": "First Asia Publication",
+      "abstract": "Sample publication covering a cluster of ca. 5–6 major cities in the Beijing area.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/asia1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((116.0000 39.0000, 118.0000 39.0000, 118.0000 41.0000, 116.0000 41.0000, 116.0000 39.0000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1002,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Asia multi-city test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 1003,
+    "fields": {
+      "name": "Europe Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1030,
+    "fields": {
+      "status": "p",
+      "title": "First Europe Publication",
+      "abstract": "Sample publication covering a cluster of ca. 5–6 major cities around Berlin.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/europe1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((13.1300 52.3700, 13.6800 52.3700, 13.6800 52.6700, 13.1300 52.6700, 13.1300 52.3700)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1003,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Europe multi-city test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 1004,
+    "fields": {
+      "name": "North America Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1040,
+    "fields": {
+      "status": "p",
+      "title": "First North America Publication",
+      "abstract": "Sample publication covering a cluster of ca. 5–6 major cities around New York City.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/northamerica1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((-74.1600 40.5400, -73.8100 40.5400, -73.8100 40.9400, -74.1600 40.9400, -74.1600 40.5400)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1004,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for North America multi-city test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 1005,
+    "fields": {
+      "name": "South America Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1050,
+    "fields": {
+      "status": "p",
+      "title": "First South America Publication",
+      "abstract": "Sample publication covering a cluster of ca. 5–6 major cities around São Paulo.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/southamerica1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((-47.0000 -23.8000, -46.2500 -23.8000, -46.2500 -23.3000, -47.0000 -23.3000, -47.0000 -23.8000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1005,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for South America multi-city test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 1006,
+    "fields": {
+      "name": "Antarctica Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1060,
+    "fields": {
+      "status": "p",
+      "title": "First Antarctica Publication",
+      "abstract": "Sample publication located in the small site-sized polygon around McMurdo Station.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/antarctica1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((166.60 -77.90, 166.70 -77.90, 166.70 -77.80, 166.60 -77.80, 166.60 -77.90)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1006,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Antarctica site test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 1007,
+    "fields": {
+      "name": "Australia Test Journal",
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 1070,
+    "fields": {
+      "status": "p",
+      "title": "First Australia Publication",
+      "abstract": "Sample publication located in the small city-sized polygon around central Sydney.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/australia1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((151.20 -33.90, 151.30 -33.90, 151.30 -33.80, 151.20 -33.80, 151.20 -33.90)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 1007,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Australia city test."
+    }
+  },
+
+  {
+    "model": "publications.source",
+    "pk": 2000,
+    "fields": {
+      "name": 2000,
+      "issn_l": null,
+      "openalex_id": null,
+      "openalex_url": null,
+      "publisher_name": null,
+      "works_count": null,
+      "homepage_url": "http://optimap.science",
+      "abbreviated_title": null,
+      "is_oa": true,
+      "cited_by_count": null,
+      "is_preprint": false
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 2001,
+    "fields": {
+      "status": "p",
+      "title": "First South Atlantic Ocean Publication",
+      "abstract": "Sample publication covering a small survey area in the South Atlantic Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/southatlantic1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((-25.0000 -25.0000, -15.0000 -25.0000, -15.0000 -15.0000, -25.0000 -15.0000, -25.0000 -25.0000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for South Atlantic Ocean small-area test."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 2001,
+    "fields": {
+      "status": "p",
+      "title": "First Southern Ocean Publication",
+      "abstract": "Sample publication covering a small research area in the Southern Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/southernocean1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((-30.0000 -60.0000, 30.0000 -60.0000, 30.0000 -50.0000, -30.0000 -50.0000, -30.0000 -60.0000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Southern Ocean small-area test."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 13,
+    "fields": {
+      "status": "p",
+      "title": "First Indian Ocean Publication",
+      "abstract": "Sample publication covering a small survey area in the Indian Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/indianocean1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((70.0000 -10.0000, 80.0000 -10.0000, 80.0000 0.0000, 70.0000 0.0000, 70.0000 -10.0000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Indian Ocean small-area test."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 14,
+    "fields": {
+      "status": "p",
+      "title": "First North Pacific Ocean Publication",
+      "abstract": "Sample publication covering a small sampling area in the North Pacific Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/northpacific1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON ((-140.0000 30.0000, -130.0000 30.0000, -130.0000 40.0000, -140.0000 40.0000, -140.0000 30.0000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for North Pacific Ocean small-area test."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 15,
+    "fields": {
+      "status": "p",
+      "title": "First North Atlantic Ocean Publication",
+      "abstract": "Sample publication covering a small sampling area in the North Atlantic Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/northatlantic1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POLYGON((-40.0000 30.0000, -30.0000 30.0000, -30.0000 40.0000, -40.0000 40.0000, -40.0000 30.0000)),POLYGON((-20.0000 35.0000, -10.0000 35.0000, -10.0000 45.0000, -20.0000 45.0000, -20.0000 35.0000)))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for North Atlantic Ocean small-area test."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 16,
+    "fields": {
+      "status": "p",
+      "title": "First Arctic Ocean Publication",
+      "abstract": "Sample publication covering a small survey area in the Arctic Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/arcticocean1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(LINESTRING(-50.0000 85.0000, 0.0000 85.0000, 50.0000 85.0000))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for Arctic Ocean small-area test."
+    }
+  },
+  {
+    "model": "publications.publication",
+    "pk": 17,
+    "fields": {
+      "status": "p",
+      "title": "First South Pacific Ocean Publication",
+      "abstract": "Sample publication covering a small research area in the South Pacific Ocean.",
+      "publicationDate": "2025-05-29",
+      "doi": "10.5555/southpacific1",
+      "url": null,
+      "geometry": "SRID=4326;GEOMETRYCOLLECTION(POINT(-135.0000 -15.0000))",
+      "creationDate": "2025-05-29T12:00:00Z",
+      "lastUpdate": "2025-05-29T12:00:00Z",
+      "source": 2000,
+      "timeperiod_startdate": "[\"2025-01-01\"]",
+      "timeperiod_enddate": "[\"2025-12-31\"]",
+      "provenance": "Manually added for South Pacific Ocean small-area test."
+    }
+  }
+]

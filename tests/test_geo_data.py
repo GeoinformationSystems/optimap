@@ -9,7 +9,7 @@ import fiona
 from django.urls import reverse
 from django.conf import settings
 import re
-from publications.models import Publication
+from publications.models import Publication, Source
 from publications.views import generate_geopackage
 from publications.tasks import (
     regenerate_geojson_cache,
@@ -26,40 +26,43 @@ class GeoDataAlternativeTestCase(TestCase):
         wkt_point2 = "GEOMETRYCOLLECTION(POINT(8.59573 52.96944))"
         wkt_point3 = "GEOMETRYCOLLECTION(POINT(9.59573 53.96944))"
         
+        s1 = Source.objects.create(name="Source One", url_field="http://example.com/1")
         Publication.objects.create(
             title="Publication One",
             abstract="Abstract of publication one.",
             publicationDate="2020-01-01",
             url="http://example.com/1",
-            source="Source One",
+            source=s1,
             doi="10.0001/one",
             geometry=wkt_point1,
             timeperiod_startdate=["2020-01-01"],
             timeperiod_enddate=["2020-12-31"],
         )
+        s2 = Source.objects.create(name="Source Two", url_field="http://example.com/2")
         Publication.objects.create(
             title="Publication Two",
             abstract="Abstract of publication two.",
             publicationDate="2020-06-01",
             url="http://example.com/2",
-            source="Source Two",
+            source=s2,
             doi="10.0001/two",
             geometry=wkt_point2,
             timeperiod_startdate=["2020-06-01"],
             timeperiod_enddate=["2020-12-31"],
         )
+        s3 = Source.objects.create(name="Source Three", url_field="http://example.com/3")
         Publication.objects.create(
             title="Publication Three",
             abstract="Abstract of publication three.",
             publicationDate="2020-09-01",
             url="http://example.com/3",
-            source="Source Three",
+            source=s3,
             doi="10.0001/three",
             geometry=wkt_point3,
             timeperiod_startdate=["2020-09-01"],
             timeperiod_enddate=["2020-12-31"],
-        )
-    
+        )    
+
     def test_geojson_generation(self):
         geojson_data = serialize('geojson', Publication.objects.all(), geometry_field='geometry')
         self.assertTrue(len(geojson_data) > 0, "GeoJSON data should not be empty")

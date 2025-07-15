@@ -1,12 +1,17 @@
+import logging
+logger = logging.getLogger(__name__)
+
 from django.contrib import admin, messages
 from leaflet.admin import LeafletGeoAdmin
-from publications.models import Publication, Source, HarvestingEvent, BlockedEmail, BlockedDomain
+from publications.models import Publication, Source, HarvestingEvent, BlockedEmail, BlockedDomain, GlobalRegion
 from import_export.admin import ImportExportModelAdmin
 from publications.models import EmailLog, Subscription, UserProfile
 from publications.tasks import harvest_oai_endpoint, schedule_subscription_email_task, send_monthly_email, schedule_monthly_email_task
 from django_q.models import Schedule
 from django.utils.timezone import now
 from publications.models import CustomUser
+from publications.tasks import regenerate_geojson_cache
+from publications.tasks import regenerate_geopackage_cache
 
 @admin.action(description="Mark selected publications as published")
 def make_public(modeladmin, request, queryset):
@@ -18,16 +23,19 @@ def make_draft(modeladmin, request, queryset):
 
 @admin.action(description="Trigger harvesting for selected sources")
 def trigger_harvesting_for_specific(modeladmin, request, queryset):
-    user = request.user
-    for source in queryset:
-        harvest_oai_endpoint(source.id, user)  
-
+    return trigger_harvesting_for_set(queryset, request)
+    
 @admin.action(description="Trigger harvesting for all sources")
 def trigger_harvesting_for_all(modeladmin, request, queryset):
     all_sources = Source.objects.all()
+    return trigger_harvesting_for_set(all_sources, request)
+    
+def trigger_harvesting_for_set(sources, request):
     user = request.user
-    for source in all_sources:
-        harvest_oai_endpoint(source.id, user) 
+
+    for source in sources:
+        added, spatial, temporal = harvest_oai_endpoint(source.id, user)
+        logger.info(f"Harvested {added} publications from source {source.id} ({source.url_field}) of which {spatial} have spatial data and {temporal} have temporal data.")
 
 @admin.action(description="Schedule harvesting for selected sources")
 def schedule_harvesting(modeladmin, request, queryset):
@@ -111,6 +119,20 @@ def block_email_and_domain(modeladmin, request, queryset):
         BlockedDomain.objects.get_or_create(domain=domain)  
         user.delete()
     modeladmin.message_user(request, "Selected users have been deleted and their emails/domains blocked.")
+    
+@admin.action(description="Regenerate GeoJSON & GeoPackage now")
+def regenerate_all_exports(modeladmin, request, queryset):
+    """
+    Immediately rebuild both:
+      • the /tmp/optimap_cache/geojson_cache.json
+      • the /tmp/optimap_cache/publications.gpkg
+    """
+    try:
+        regenerate_geojson_cache()
+        regenerate_geopackage_cache()
+        messages.success(request, "GeoJSON & GeoPackage caches were regenerated.")
+    except Exception as e:
+        messages.error(request, f"Error during export regeneration: {e}")
 
 @admin.register(Publication)
 class PublicationAdmin(LeafletGeoAdmin, ImportExportModelAdmin):
@@ -118,7 +140,7 @@ class PublicationAdmin(LeafletGeoAdmin, ImportExportModelAdmin):
     list_display = ("title", "doi", "creationDate", "lastUpdate", "created_by", "updated_by", "status", "provenance", "source")
     search_fields = ("title", "doi", "abstract", "source")
     list_filter = ("status", "creationDate")
-    actions = [make_public, make_draft]
+    actions = [make_public, make_draft, regenerate_all_exports]
 
     fields = (
         "title", "doi", "status", "source", "abstract",
@@ -126,7 +148,8 @@ class PublicationAdmin(LeafletGeoAdmin, ImportExportModelAdmin):
         "created_by", "updated_by", "provenance"
     )
     readonly_fields = ("created_by", "updated_by")
-
+ 
+    
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
     list_display = ("id", "url_field", "harvest_interval_minutes", "last_harvest", "collection_name", "tags")
@@ -141,6 +164,7 @@ class HarvestingEventAdmin(admin.ModelAdmin):
     search_fields = ("source__url",)
 
 
+@admin.register(EmailLog)
 class EmailLogAdmin(admin.ModelAdmin):
     list_display = (
         "recipient_email",
@@ -155,10 +179,12 @@ class EmailLogAdmin(admin.ModelAdmin):
     search_fields = ("recipient_email", "subject", "sent_by__username")  
     actions = [trigger_monthly_email, trigger_monthly_email_task]  
 
+@admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ("user", "region", "subscribed")
     actions = [send_subscription_emails, send_subscription_emails_scheduler]
 
+@admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "notify_new_manuscripts")  
     search_fields = ("user__email",)
@@ -179,6 +205,6 @@ class UserAdmin(admin.ModelAdmin):
     list_display = ("username", "email", "is_active")
     actions = [block_email, block_email_and_domain]
 
-admin.site.register(EmailLog, EmailLogAdmin)
-admin.site.register(UserProfile, UserProfileAdmin)
-admin.site.register(Subscription, SubscriptionAdmin)  
+@admin.register(GlobalRegion)
+class GlobalRegionAdmin(admin.ModelAdmin):
+    """GlobalRegion Admin."""

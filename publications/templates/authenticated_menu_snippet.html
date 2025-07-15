@@ -2,7 +2,9 @@
     <a class="nav-link dropdown" href="#"id="navbarDarkDropdown" role="button" data-toggle="dropdown" aria-expanded="false">
         <i class="fa-solid fa-circle-user fa-3x"></i> 
     </a>
-    <ul class="dropdown-menu dropdown-menu-right " aria-labelledby="navbarDarkDropdown">
+    <ul class="dropdown-menu dropdown-menu-right"
+        aria-labelledby="navbarDarkDropdown"
+        style="max-width: 400px;">
         <a class="dropdown-item" >{{user.email}}</a>
         <div class="dropdown-divider"></div>
         <li><a class="dropdown-item" href="{% url 'optimap:usersettings' %}">Settings</a></li>

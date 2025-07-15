@@ -38,5 +38,15 @@
 {% block scripts %}
 <script src="{% static 'js/main.js' %}"></script>
 {# <script src="{% static 'js/timeline.js' %}"></script> #}
+
+<script type="text/javascript">
+    $(document).ready(function () {
+      const autoclose_seconds = 5;
+      $("#autoclose_secs").text(autoclose_seconds);
+      setTimeout(function() {
+          $(".alert-autoclose").alert('close');
+        }, autoclose_seconds * 1000);
+    });
+</script>
 {% endblock %}
 

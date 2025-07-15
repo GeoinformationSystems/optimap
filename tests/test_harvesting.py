@@ -1,5 +1,11 @@
 import os
 import django
+import time
+import responses
+from django.test import Client, TransactionTestCase, TestCase 
+from django.conf import settings
+from django.urls import reverse
+# bootstrap Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'optimap.settings')
 django.setup()
 
@@ -10,7 +16,6 @@ import time
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
-
 
 class SimpleTest(TestCase):
 

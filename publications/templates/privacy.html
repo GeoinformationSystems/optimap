@@ -1,24 +1,34 @@
 {% extends "main.html" %}
 
-{% block title %}Privacy policy and imprint | {% endblock %}
+{% block title %}Privacy policy | {% endblock %}
 
 {% block content %}
 
 <div class="row justify-content-center">
   <div class="col-4 py-5 text-wrap">
-    <h1 class="py-2">Privacy policy</h1>
+    <h1 class="py-5">Overview</h1>
 
-    <p class="lead">OPTIMAP does not collect or log your personal data. We only store your email to identify your user
-      account and minimal metadata, such as the date of registration and the last login, to identify and handle stale accounts.</p>
+    <h2 class="py-2">Data protection considerations</h2>
 
-    <p>The address of the website is {{ site | urlize }}.</p>
+    <p>OPTIMAP does not collect or log your personal data. We only store your email to identify your user
+      account and minimal metadata, such as the date of registration and the last login, to identify and handle stale
+      accounts.
+      Upon your first login, you consent to this processing of your personal data.</p>
 
-    <p>This website does not use any cookies to track users, with the exception of the login status, to which users
+    <p>You can use OPTIMAP fully anonymously by using a public inbox, such as <a href="https://www.mailinator.com/"
+        title="Link to Mailinator">Mailinator</a>.</p>
+
+    <p>See the OPTIMAP Data Privacy Concept (<a href="/static/OPTIMAP_Data-Privacy-Concept.pdf">download here</a>) and the privacy policy below for details.</p>
+
+    <h2 class="py-2">Cookies and third-party services</h2>
+
+    <p>This website does not use any cookies to track users or any third-party tracking services (such as Google
+      Analytics or similar), with the exception of the login status, to which users
       provide implicit concent by opening an account on the website.</p>
 
     <p>This website utilizes map services provided by the OpenStreetMap Foundation, St John's Innovation Centre, Cowley
       Road, Cambridge, CB4 0WS, United Kingdom (short OSMF). Your Internet browser or application will connect to
-      servers operated by the OSMF located in the United Kingdom and in other countries. The operator of this site has
+      servers operated by the OSMF located in the United login and in other countries. The operator of this site has
       no control over such connections and processing of your data by the OSMF. You can find more information on the
       processing of user data by the OSMF in the <a href="https://wiki.osmfoundation.org/wiki/Privacy_Policy">OSMF
         privacy policy</a>.
@@ -26,11 +36,93 @@
       of displaying the map functions to the users of the website for interactive exploration of the presented datasets.
     </p>
 
-    <h1 class="py-2">Notice of liability</h1>
-    <p>Although we check the content carefully, we cannot accept responsibility for the content of external links. The
-      linked sites' carriers are responsible for their sites' content.</p>
+    <h2 class="py-2">Delete account</h2>
 
-    {% include "imprint.html" %}
+    <p>You can <strong>delete</strong> your account yourself after logging in (Settings > Delete account), which will
+      deactivate all notifications and feeds.
+      Stale accounts that have not been used in over a year are automatically deleted after a final warning email.</p>
+
+    <h1 class="py-5">Privacy policy</h1>
+    <p class="lead">Privacy policy on the processing of personal data in the context of the KOMET research project</p>
+
+    <h2 class="py-2">For what purposes should personal data be processed?</h2>
+
+    <p>The aim of the research project KOMET is to improve the scholarly metadata commons to aide findability of research
+    outputs based on persistent identifiers and geospatial metadata.
+    The service OPTIMAP provides a platform for the discovery or research outputs based on their geospatial properties.</p>
+
+    <h2 class="py-2">Who is responsible for data processing and who can data subjects contact?</h2>
+
+    {% include "contact.html" %}
+
+    <p><strong>TUD Dresden University of Technology</strong><br>
+      The Data Protection Officer<br>
+      Mr Jens Syckor<br>
+      01062 Dresden<br>
+      Phone: +49 (0)351 463-32839<br>
+      E-mail: informationssicherheit@tu-dresden.de</p>
+
+    <h2 class="py-2">What is the legal basis for processing personal data?</h2>
+
+    <p>The legal basis for data processing for the above-mentioned purposes is Art. 6 para. 1 subpara. 1 lit. a for the
+      use of the platform and § 12 SächsDSDG for the publication data with personal reference.</p>
+
+    <h2 class="py-2">What personal data is processed?</h2>
+
+    <p>The following personal data is processed for the use of the platform: e-mail address.</p>
+
+    <p>Furthermore, publication data of scientists that are publicly accessible are processed for the OPTIMETA web
+      service. Publication data with personal reference are: author name, author affiliation, author persistent
+      identifiers (e.g., ORCID).
+
+    <h2 class="py-2">How is personal data processed and how long is it stored?</h2>
+
+    <p>The data for using the platform is collected upon registration and deleted until cancellation or completion of the research project.</p>
+
+    <p>Publication data is continuously collected from external sources and processed in the platform. Characteristics from the publication data that can be used to establish a personal reference are deleted as soon as the research purpose
+    allows this (at the latest when the research project is completed).</p>
+
+    <h2 class="py-2">Is personal data transferred to third parties?</h2>
+
+    <p>Unless otherwise stipulated by law or you have expressly consented in individual cases, no personal data will be
+    transferred to third parties.</p>
+
+    <h2 class="py-2">Will personal data be published?</h2>
+
+    </p>The research results will be published in the usual scientific form. We guarantee that no conclusions can be drawn
+    about your person from the publications.</p>
+
+    <h2 class="py-2">What rights do data subjects have in principle?</h2>
+
+    <p><strong>Voluntariness and revocation (Art. 7 para. 3 DSGVO)</strong>
+    The provision of personal data for the use of the platform is voluntary. Consent can be refused or revoked at any time informally and without giving reasons to the person responsible. Your personal data will then no longer be processed and will be deleted immediately, unless the realisation of the research realisation of the research objectives would probably be impossible or seriously impaired by this and there is there is a legal basis other than consent for the processing (in particular Section 12 (1) SächsDSDG).</p>
+    
+    <p><strong>Right to information (Art. 15 DGSVO)</strong>
+    You have the right to request information about the personal data processed about you and the possible recipients of this data at any time. You are entitled to an answer within a period of one month after receipt of the request for information.</p>
+
+    </p><strong>Right to rectification, erasure and restriction (Art. 16-18 DGSVO)</strong>
+    You can request the rectification or erasure of your personal data or the restriction of processing from TU Dresden at any time.</p>
+    
+    <p><strong>Right to data portability (Art. 20 DGSVO)</strong>
+    If the data was collected with your consent, you can request that the data controller provide you with your personal data in machine-readable form. Alternatively, you can request the direct transfer of the personal data provided by you to another controller, insofar as this is possible. possible.</p>
+    
+    <p><strong>Right to lodge a complaint (Art. 77 DGSVO)</strong>
+    You can contact the TU Dresden Data Protection Officer at any time (see above) and, in the event of a complaint under Art. 77 DGSVO to a supervisory authority for data protection.<br>
+    <em>Responsible supervisory authority for the Technische Universität Dresden:</em>
+    Saxon Data Protection and Transparency Officer<br>
+    Dr Juliane Hundert<br>
+    Maternistrasse 17<br>
+    01067 Dresden<br>
+    Phone: +49 (0) 351 85471 101<br>
+    E-mail: post@sdtb.sachsen.de<br>
+    www.datenschutz.sachsen.de</p>
+
+
+    <strong>Note</strong>: To exercise your rights, it is sufficient to send a notification in text form (letter, email) to Dr. Daniel Nüst (komet@tu-dresden.de, see above). However, exercising your rights will only have an effect if the data processed allows you to be identified.
+
+    <h2 class="py-2">Information on the right to object pursuant to Art. 21 (1) DGSVO</h2>
+    <p>You have the right to object, on grounds relating to your particular situation, at any time to the processing of personal data concerning you that is processed on the basis of Section 12 SächsDSDG. The controller will no longer process the personal data unless the controller demonstrates compelling legitimate grounds for the processing reasons for the processing which override the interests, rights and freedoms of the data subject, or the processing serves the establishment, exercise or defence of legal claims.</p>
+
   </div>
 </div>
 

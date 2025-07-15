@@ -1,8 +1,13 @@
 {% extends "main.html" %}
 
 {% block alert %}
-<div class="alert alert-success m-3" role="alert">
-  <button type="button" class="close" data-dismiss="alert" aria-label="Close">×</button>
-  <strong>Welcome {% if not is_new %}back {%endif%}to OPTIMAP!</strong>{% if is_new %} Your account was successfully created.{% endif %}
+<div class="alert alert-primary m-3" role="alert">
+  <button type="button" class="close {% if not is_new %}alert-autoclose{% endif %}" data-dismiss="alert" aria-label="Close">×</button>
+  <span class="text-wrap"><strong>Welcome {% if not is_new %}back {% endif %}to OPTIMAP!</strong>{% if not is_new %} This message closes in <span id="autoclose_secs"></span> seconds, or use the 'x' to the right...{% endif %}
+  {% if needs_confirmation %}<br/>Your email {{ email }} works. By clicking the button below, you consent to the processing of your personal data in accordance with the <a href="{% url 'optimap:privacy' %}">privacy policy</a>.
+  <br/>
+  <a href="{{ token }}?confirmed=true" class="btn btn-primary btn-sm my-2 p-2" role="button" aria-pressed="true">I consent</a>
+  {% endif %}
+  </span>
 </div>
 {% endblock %}

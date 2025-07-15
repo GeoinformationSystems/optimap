@@ -35,20 +35,16 @@ class AccountDeletionTests(TestCase):
         """Test that a user can finalize account deletion"""
         session = self.client.session
         session["user_delete_token"] = self.delete_token 
-        session.save() 
+        session.save()
 
         # Send delete request
         response = self.client.post(reverse("optimap:finalize_delete"))
 
         self.assertEqual(response.status_code, 302) 
 
-        # Fetch user from DB again
+        # Try to fetch user from DB again
         user = User.objects.filter(id=self.user.id).first()
-
-        if user:  
-            self.assertTrue(user.deleted)  
-        else: 
-            self.assertIsNone(user)
+        self.assertIsNone(user)
 
     def test_invalid_token(self):
         """Test invalid or expired deletion token"""

@@ -6,37 +6,57 @@ services:
       POSTGRES_USER: optimap
       POSTGRES_PASSWORD: optimap
       #POSTGRES_PASSWORD_FILE: database_password
-    ports:
-      - "5434:5432"
+    #ports:
+    #  - "5432:5432"
     volumes:
       - optimap-volume:/var/lib/postgresql/data
     #secrets:
     #  - database_password
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     environment:
       #see local .env file on the server
       DATABASE_URL: postgis://optimap:optimap@db:5432/optimap?sslmode=disable
       OPTIMAP_DEBUG: "False"
     volumes:
-      - ".:/code" # need to run collectstatic
-      - "./fixtures:/fixtures"
-    ports:
-      - "8000:8000"
+      - "./optimap/.env:/code/optimap/.env:ro"
+    #ports:
+    #  - "8000:8000"
     depends_on:
       - db
+
+  djangoq:
+    build: .
+    environment:
+      #see local .env file on the server
+      DATABASE_URL: postgis://optimap:optimap@db:5432/optimap?sslmode=disable   
+    entrypoint: ["python"] # do not run manage-and-run.sh script
+    command: ["manage.py", "qcluster"]
+    volumes:
+      - "./optimap/.env:/code/optimap/.env:ro"
+    depends_on:
+      - db
+      - app
 
   webserver:
     image: nginx:1.27-alpine
     volumes:
       - "./etc/nginx.deploy.conf:/etc/nginx/nginx.conf:ro"
+      - "./certbot/www/:/var/www/certbot/:ro"
+      - "./certbot/conf/:/etc/nginx/ssl/:ro"
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
-      - app
+       - app
+    restart: always
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - "./certbot/www/:/var/www/certbot/:rw"
+      - "./certbot/conf/:/etc/letsencrypt/:rw"
 
 volumes:
   optimap-volume:

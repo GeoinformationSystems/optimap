@@ -2,7 +2,7 @@ from django.contrib.syndication.views import Feed
 from django.utils.feedgenerator import Rss201rev2Feed, Atom1Feed
 from .models import Publication
 from datetime import datetime
-from django.contrib.gis.geos import GEOSGeometry
+from django.conf import settings
 
 class CustomGeoFeed(Rss201rev2Feed):
     def __init__(self, *args, **kwargs):
@@ -109,10 +109,10 @@ class GeoFeed(Feed):
         return f"Updates on the latest publications with geographic data using {self.feed_type_variant.upper()} format."
 
     def items(self):
-        return Publication.objects.filter(status="p", geometry__isnull=False, url__isnull=False).order_by('-creationDate')[:10]
+        return Publication.objects.filter(status="p", geometry__isnull=False, url__isnull=False).order_by('-creationDate')[:settings.FEED_MAX_ITEMS]
 
     def item_title(self, item):
-        return item.title or "Untitled Publication"
+        return item.title
 
     def item_description(self, item):
         return item.abstract or "No abstract available."

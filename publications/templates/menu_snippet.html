@@ -5,17 +5,15 @@
     id="navbarDarkDropdown1"
     role="button"
     data-toggle="dropdown"
-    aria-expanded="false"
-  >
+    aria-expanded="false">
     <i class="fa-solid fa-circle-user fa-3x"></i>
   </a>
   <ul
     class="dropdown-menu dropdown-menu-right"
     aria-labelledby="navbarDarkDropdown1"
-  >
-    <span class="dropdown-item-text"
-      >New around here? Please login to create a new account.</span
-    >
+    style="width: 30rem; margin-top: 1rem;">
+    <span class="dropdown-item-text text-wrap"><em>New around here?</em> Login is handled password-less. Enter your email address and click the button below to receive a link you can use to log in. If the email is unknown to OPTIMAP, it will create a new account.</span>
+    <span class="dropdown-item-text text-wrap">Want to stay <em>anonymous</em>? Use a public inbox like <a href="https://www.mailinator.com/">Mailinator</a> or check out our <a href="{% url 'optimap:privacy' %}">privacy information</a>.</span>
     <div class="dropdown-divider"></div>
     <li class="px-3 py-2">
       <form class="form" method="POST" action="{% url 'optimap:loginres' %}">
@@ -31,7 +29,7 @@
           />
         </div>
         <div class="form-group">
-          <button type="submit" class="btn btn-primary btn-block">Login</button>
+          <button type="submit" class="btn btn-primary btn-block">Send login link</button>
         </div>
       </form>
     </li>

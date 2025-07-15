@@ -1,0 +1,33 @@
+{% extends "main.html" %}
+
+{% block title %}About, contact, licenses, imprint | {% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-4 py-5 text-wrap">
+    <h1 class="py-2">About</h1>
+
+    <p class="lead">Discover research on a map.</p>
+
+    <p>OPTIMAP is a search platform for scientific publications based on articles with geospatial metadata, i.e. locations and time periods that are considered in a publication. OPTIMAP connects with journals, repositories, and preprint servers to put publications literally <em>on a map</em> to create new connections between research outputs across all scientific disciplines.</p> 
+    
+    {% include "acknowledgements.html" %}
+
+    {% include "license.html" %}
+
+    <h2 class="py-2">Accessibility</h2>
+    <p>Learn more about our measure to improve accessiblity <a title="Accessibility page" href="/accessibility">here</a>.</p>
+
+    <h2 class="py-2">Imprint</h2>
+
+    {% include "contact.html" %}
+
+    <strong>Responsible for the content</strong>
+    <p>Dr. Daniel Nüst</br>
+        Email: <a href="mailto:daniel.nuest@tu-dresden.de">daniel.nuest@tu-dresden.de</a>
+    </p>
+  </div>
+</div>
+
+{% endblock %}
