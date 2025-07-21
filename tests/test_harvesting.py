@@ -2,37 +2,38 @@ import os
 import django
 import time
 import responses
-from django.test import Client, TransactionTestCase, TestCase 
-from django.conf import settings
-from django.urls import reverse
+from pathlib import Path
+from django.test import Client, TestCase
+
 # bootstrap Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'optimap.settings')
 django.setup()
 
-from django.test import Client, TestCase
 from publications.models import Publication, Source, HarvestingEvent, Schedule
-import responses
-import time
+from publications.tasks import parse_oai_xml_and_save_publications
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
+BASE_TEST_DIR = Path(__file__).resolve().parent
 
 class SimpleTest(TestCase):
 
-    @classmethod
     @responses.activate
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUp(self):
+        super().setUp()
+
         Publication.objects.all().delete()
 
-        article01_path = os.path.join(os.getcwd(), 'tests', 'harvesting', 'journal_1', 'article_01.html')
-        article02_path = os.path.join(os.getcwd(), 'tests', 'harvesting', 'journal_1', 'article_02.html')
+        article01_path = BASE_TEST_DIR / 'harvesting' / 'source_1' / 'article_01.html'
+        article02_path = BASE_TEST_DIR / 'harvesting' / 'source_1' / 'article_02.html'
         with open(article01_path) as f1, open(article02_path) as f2:
-            responses.get(
+            responses.add(
+                responses.GET,
                 'http://localhost:8330/index.php/opti-geo/article/view/1',
                 body=f1.read()
             )
-            responses.get(
+            responses.add(
+                responses.GET,
                 'http://localhost:8330/index.php/opti-geo/article/view/2',
                 body=f2.read()
             )
@@ -43,28 +44,20 @@ class SimpleTest(TestCase):
         )
         event = HarvestingEvent.objects.create(source=src, status="in_progress")
 
-        oai_path = os.path.join(os.getcwd(), 'tests', 'harvesting', 'journal_1', 'oai_dc.xml')
-        with open(oai_path, 'rb') as oai_file:
-            xml_bytes = oai_file.read()
-
-        from publications.tasks import parse_oai_xml_and_save_publications
+        oai_path = BASE_TEST_DIR / 'harvesting' / 'source_1' / 'oai_dc.xml'
+        xml_bytes = oai_path.read_bytes()
         parse_oai_xml_and_save_publications(xml_bytes, event)
 
         Publication.objects.all().update(status="p")
 
-        cls.user = User.objects.create_user(
+        self.user = User.objects.create_user(
             username="testuser",
             email="testuser@example.com",
             password="password123"
         )
-
-    @classmethod
-    def tearDownClass(cls):
-        Publication.objects.all().delete()
-        super().tearDownClass()
-
-    def setUp(self):
         self.client = Client()
+        self.client.force_login(self.user)
+
         results = self.client.get('/api/v1/publications/').json()['results']
         features = results.get('features', [])
         if len(features) >= 2:
@@ -113,15 +106,14 @@ class SimpleTest(TestCase):
         )
 
     def test_task_scheduling(self):
-        # ensure the scheduling action still works
-        oai_file_path = os.path.join(os.getcwd(), "tests", "harvesting", "journal_1", "oai_dc.xml")
+        oai_file_path = BASE_TEST_DIR / "harvesting" / "journal_1" / "oai_dc.xml"
         new_src = Source.objects.create(
             url_field=f"file://{oai_file_path}",
             harvest_interval_minutes=60
         )
         time.sleep(2)
-        schedule = Schedule.objects.filter(name=f"Harvest Source {new_src.id}")
-        self.assertTrue(schedule.exists(), "Django-Q task not scheduled for source.")
+        schedule_q = Schedule.objects.filter(name=f"Harvest Source {new_src.id}")
+        self.assertTrue(schedule_q.exists(), "Django-Q task not scheduled for source.")
 
     def test_no_duplicates(self):
         publications = Publication.objects.all()
