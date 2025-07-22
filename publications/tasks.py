@@ -36,6 +36,11 @@ BASE_URL = settings.BASE_URL
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', re.IGNORECASE)
 CACHE_DIR = Path(tempfile.gettempdir()) / 'optimap_cache'
 
+def _get_article_link(pub):
+    """
+    Return the DOI resolver URL if pub.doi is set, otherwise fall back to pub.url.
+    """
+    return f"https://doi.org/{pub.doi}" if pub.doi else pub.url
 
 def generate_data_dump_filename(extension: str) -> str:
     ts = datetime.now(dt_timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -247,7 +252,8 @@ def harvest_oai_endpoint(source_id: int, user=None) -> None:
 
 
 def send_monthly_email(trigger_source='manual', sent_by=None):
-    recipients = User.objects.filter(userprofile__notify_new_manuscripts=True).values_list('email', flat=True)
+    recipients = User.objects.filter(userprofile__notify_new_manuscripts=True) \
+                             .values_list('email', flat=True)
     last_month = timezone.now().replace(day=1) - timedelta(days=1)
     new_manuscripts = Publication.objects.filter(creationDate__month=last_month.month)
 
@@ -255,7 +261,11 @@ def send_monthly_email(trigger_source='manual', sent_by=None):
         return
 
     subject = "📚 New Manuscripts This Month"
-    content = "Here are the new manuscripts:\n" + "\n".join([pub.title for pub in new_manuscripts])
+    lines = []
+    for pub in new_manuscripts:
+        link = _get_article_link(pub)
+        lines.append(f"- {pub.title}: {link}")
+    content = "Here are the new manuscripts:\n" + "\n".join(lines)
 
     for recipient in recipients:
         try:
@@ -267,14 +277,25 @@ def send_monthly_email(trigger_source='manual', sent_by=None):
                 fail_silently=False,
             )
             EmailLog.log_email(
-                recipient, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="success"
+                recipient,
+                subject,
+                content,
+                sent_by=sent_by,
+                trigger_source=trigger_source,
+                status="success"
             )
             time.sleep(settings.EMAIL_SEND_DELAY)
         except Exception as e:
             error_message = str(e)
             logger.error(f"Failed to send monthly email to {recipient}: {error_message}")
             EmailLog.log_email(
-                recipient, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="failed", error_message=error_message
+                recipient,
+                subject,
+                content,
+                sent_by=sent_by,
+                trigger_source=trigger_source,
+                status="failed",
+                error_message=error_message
             )
 
 def send_subscription_based_email(trigger_source='manual', sent_by=None, user_ids=None):
@@ -284,19 +305,24 @@ def send_subscription_based_email(trigger_source='manual', sent_by=None, user_id
 
     for subscription in query:
         user_email = subscription.user.email
-
         new_publications = Publication.objects.filter(
             geometry__intersects=subscription.region,
         )
-
         if not new_publications.exists():
             continue
 
-        unsubscribe_specific = f"{BASE_URL}{reverse('optimap:unsubscribe')}?search={quote(subscription.search_term)}"
+        unsubscribe_specific = (
+            f"{BASE_URL}{reverse('optimap:unsubscribe')}?search="
+            f"{quote(subscription.search_term)}"
+        )
         unsubscribe_all = f"{BASE_URL}{reverse('optimap:unsubscribe')}?all=true"
 
         subject = f"📚 New Manuscripts Matching '{subscription.search_term}'"
-        bullet_list = "\n".join([f"- {pub.title}" for pub in new_publications])
+        lines = []
+        for pub in new_publications:
+            link = _get_article_link(pub)
+            lines.append(f"- {pub.title}: {link}")
+        bullet_list = "\n".join(lines)
         content = f"""Dear {subscription.user.username},
 Here are the latest manuscripts matching your subscription:
 
@@ -311,17 +337,27 @@ Unsubscribe from All: {unsubscribe_all}
             email = EmailMessage(subject, content, settings.EMAIL_HOST_USER, [user_email])
             email.send()
             EmailLog.log_email(
-                user_email, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="success"
+                user_email,
+                subject,
+                content,
+                sent_by=sent_by,
+                trigger_source=trigger_source,
+                status="success"
             )
             time.sleep(settings.EMAIL_SEND_DELAY)
         except Exception as e:
             error_message = str(e)
             logger.error(f"Failed to send subscription email to {user_email}: {error_message}")
             EmailLog.log_email(
-                user_email, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="failed", error_message=error_message
+                user_email,
+                subject,
+                content,
+                sent_by=sent_by,
+                trigger_source=trigger_source,
+                status="failed",
+                error_message=error_message
             )
 
-# ... (the rest of the file remains unchanged)
 
 def schedule_monthly_email_task(sent_by=None):
     if not Schedule.objects.filter(func='publications.tasks.send_monthly_email').exists():
