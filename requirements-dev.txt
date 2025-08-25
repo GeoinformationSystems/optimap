@@ -4,3 +4,4 @@ responses
 xmldiff
 fiona
 coverage
+markdown
