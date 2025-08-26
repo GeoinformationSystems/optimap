@@ -5,3 +5,4 @@ xmldiff
 fiona
 coverage
 markdown
+jinja2
