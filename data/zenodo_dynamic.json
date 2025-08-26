@@ -1,0 +1,22 @@
+{
+  "version": "v17",
+  "keywords": [
+    "Open Access",
+    "Open Science",
+    "ORI",
+    "Open Data",
+    "FAIR"
+  ],
+  "related_identifiers": [
+    {
+      "relation": "isSupplementTo",
+      "identifier": "http://127.0.0.1:8000/data/optimap_data_dump_latest.geojson.gz",
+      "scheme": "url"
+    },
+    {
+      "relation": "isSupplementTo",
+      "identifier": "http://127.0.0.1:8000/data/optimap_data_dump_latest.gpkg",
+      "scheme": "url"
+    }
+  ]
+}
