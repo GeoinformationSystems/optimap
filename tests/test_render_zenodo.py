@@ -48,7 +48,7 @@ class RenderZenodoTest(TestCase):
         # Import after DB is ready
         import importlib
         self.render_mod = importlib.import_module(
-            "publications.management.commands.render_zenodo_desc"
+            "publications.management.commands.render_zenodo"
         )
 
         # Fake Path so parents[3] stays inside tmp root
@@ -57,7 +57,7 @@ class RenderZenodoTest(TestCase):
             def resolve(self):
                 return self
         self.FakePath = FakePath
-        self.render_file = str(self.cmds_dir / "render_zenodo_desc.py")
+        self.render_file = str(self.cmds_dir / "render_zenodo.py")
 
     def tearDown(self):
         self._tmpdir.cleanup()
@@ -69,7 +69,7 @@ class RenderZenodoTest(TestCase):
         with patch.object(self.render_mod, "__file__", new=self.render_file), \
              patch.object(self.render_mod, "Path", self.FakePath), \
              patch("subprocess.run", _noop):
-            call_command("render_zenodo_desc")
+            call_command("render_zenodo")
 
         readme_path = self.data_dir / "README.md"
         zip_path    = self.data_dir / "optimap-main.zip"
