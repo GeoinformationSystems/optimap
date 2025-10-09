@@ -39,3 +39,5 @@ humanize==4.10.0
 pyalex>=0.4.0
 python-stdnum>=2.0.0
 geopy>=2.4.1
+zenodo-client==0.3.6
+markdown

@@ -215,6 +215,10 @@ EMAIL_SEND_DELAY = 2
 DATA_DUMP_INTERVAL_HOURS = 6
 OPENALEX_MAILTO = "login@optimap.science"
 
+ZENODO_API_TOKEN = os.environ.get("ZENODO_API_TOKEN")     # put your sandbox token in env - M9Ps36SO2dlBJNlMOJMsLWzL9G8b6REY8QSsejUo3Ge6gNXQFRMFe915npTT
+ZENODO_SANDBOX_DEPOSITION_ID = os.environ.get("ZENODO_SANDBOX_DEPOSITION_ID")
+ZENODO_API_BASE = os.getenv("ZENODO_API_BASE", "https://sandbox.zenodo.org/api")  # or use the real one for production
+
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',
     'django.middleware.common.CommonMiddleware',

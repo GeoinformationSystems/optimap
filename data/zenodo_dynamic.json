@@ -1,0 +1,23 @@
+{
+  "version": "v17",
+  "related_identifiers": [
+    {
+      "scheme": "url",
+      "identifier": "http://127.0.0.1:8000/data/optimap_data_dump_latest.geojson.gz",
+      "relation": "isSupplementTo",
+      "resource_type": "dataset"
+    },
+    {
+      "scheme": "url",
+      "identifier": "http://127.0.0.1:8000/data/optimap_data_dump_latest.gpkg",
+      "relation": "isSupplementTo",
+      "resource_type": "dataset"
+    },
+    {
+      "scheme": "url",
+      "identifier": "https://optimap.science",
+      "relation": "describes",
+      "resource_type": "publication"
+    }
+  ]
+}
