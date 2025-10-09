@@ -3,7 +3,7 @@
 ## JS file sources
 
 ```bash
-wget https://code.jquery.com/jquery-3.4.1.slim.min.js -P js/
+wget https://code.jquery.com/jquery-3.4.1.min.js -P js/
 wget https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/js/bootstrap.min.js -P js/
 wget https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/js/bootstrap.min.js.map -P js/
 wget https://unpkg.com/leaflet@1.9.2/dist/leaflet.js -P js/

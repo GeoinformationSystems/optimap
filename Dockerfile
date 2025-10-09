@@ -10,10 +10,10 @@ ENV OPTIMAP_ALLOWED_HOST=*
 
 ENV DEBIAN_FRONTEND="noninteractive" TZ="Europe/Berlin"
 
-# install Python
+# install Python and git
 RUN apt-get update && \
     apt-get install -y -qq python-is-python3 && \
-    apt-get install -y -qq python3-pip tzdata
+    apt-get install -y -qq python3-pip tzdata git
 
 # install GDAL from UbuntuGIS
 RUN apt-get update && \

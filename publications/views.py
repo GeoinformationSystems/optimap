@@ -557,6 +557,47 @@ def feeds(request):
         "regions": regions,
     })
 
+def geoextent(request):
+    """Geoextent extraction UI page."""
+    from geoextent.lib.features import get_supported_features
+
+    # Get supported formats and providers from geoextent's features API
+    features = get_supported_features()
+
+    # Organize file formats by handler type with display names
+    supported_formats = []
+    for handler in features.get('file_formats', []):
+        display_name = handler.get('display_name', handler['handler'])
+        extensions = [ext.lstrip('.') for ext in handler.get('file_extensions', [])]
+        description = handler.get('description', '')
+        if extensions:
+            supported_formats.append({
+                'name': display_name,
+                'extensions': extensions,
+                'description': description
+            })
+
+    # Extract provider details with descriptions and URLs
+    supported_providers = []
+    for provider in features.get('content_providers', []):
+        supported_providers.append({
+            'name': provider.get('name', 'Unknown'),
+            'description': provider.get('description', ''),
+            'website': provider.get('website', ''),
+            'examples': provider.get('examples', [])
+        })
+
+    context = {
+        'supported_formats': supported_formats,
+        'supported_providers': supported_providers,
+        'geoextent_version': features.get('version', 'unknown'),
+        'max_file_size_mb': getattr(settings, 'GEOEXTENT_MAX_FILE_SIZE_MB', 100),
+        'max_batch_size_mb': getattr(settings, 'GEOEXTENT_MAX_BATCH_SIZE_MB', 500),
+        'max_download_size_mb': getattr(settings, 'GEOEXTENT_MAX_DOWNLOAD_SIZE_MB', 1000),
+    }
+
+    return render(request, 'geoextent.html', context)
+
 class RobotsView(View):
     http_method_names = ['get']
     def get(self, request):

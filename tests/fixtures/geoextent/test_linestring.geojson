@@ -1,0 +1,15 @@
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [13.4, 52.5],
+      [13.5, 52.6],
+      [13.6, 52.7]
+    ]
+  },
+  "properties": {
+    "name": "Berlin Route",
+    "date": "2023-12-25"
+  }
+}

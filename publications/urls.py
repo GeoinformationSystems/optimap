@@ -56,5 +56,6 @@ urlpatterns = [
          GeoFeedByGeometry(feed_type_variant="georss"), name="feed-georss-by-slug",),
     path("feeds/geoatom/<slug:geometry_slug>/",
          GeoFeedByGeometry(feed_type_variant="geoatom"), name="feed-geoatom-by-slug"),
+    path("geoextent/", views.geoextent, name="geoextent"),
 
 ]

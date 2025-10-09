@@ -1,0 +1,1133 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block head %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/leaflet.css' %}" />
+<style>
+    #geoextent-map {
+        height: 500px;
+        margin-bottom: 20px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+    }
+    .geoextent-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    .card {
+        margin-bottom: 20px;
+    }
+    .format-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        margin: 2px;
+        background-color: #e9ecef;
+        border-radius: 3px;
+        font-size: 0.85em;
+    }
+    .results-container {
+        display: none;
+        margin-top: 20px;
+    }
+    .extraction-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 8px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+        border-left: 4px solid;
+    }
+    .extraction-item:hover {
+        background-color: #e9ecef;
+    }
+    .extraction-item-info {
+        flex-grow: 1;
+        min-width: 0;
+    }
+    .extraction-item-title {
+        font-weight: 500;
+        margin-bottom: 4px;
+    }
+    .extraction-item-meta {
+        font-size: 0.85em;
+        color: #6c757d;
+    }
+    .extraction-item-actions {
+        display: flex;
+        gap: 5px;
+        margin-left: 10px;
+    }
+    .extraction-item-actions button {
+        padding: 3px 8px;
+        font-size: 0.85em;
+    }
+    .extraction-details {
+        margin-top: 10px;
+        padding: 10px;
+        background-color: #fff;
+        border-radius: 4px;
+        display: none;
+    }
+    .extraction-details.show {
+        display: block;
+    }
+    pre {
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 4px;
+        max-height: 300px;
+        overflow: auto;
+        font-size: 0.85em;
+    }
+    .file-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        border-radius: 4px;
+        background-color: #fff;
+    }
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 10px;
+        margin-bottom: 5px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+    }
+    .file-item:hover {
+        background-color: #e9ecef;
+    }
+    .file-item-info {
+        flex-grow: 1;
+        min-width: 0;
+    }
+    .file-item-name {
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .file-item-size {
+        font-size: 0.85em;
+        color: #6c757d;
+    }
+    .file-item-remove {
+        margin-left: 10px;
+        cursor: pointer;
+        color: #dc3545;
+        font-size: 1.2em;
+    }
+    .file-item-remove:hover {
+        color: #bd2130;
+    }
+    .spinner-border {
+        display: none;
+    }
+    .loading .spinner-border {
+        display: inline-block;
+    }
+    .map-controls {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: white;
+        padding: 5px;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.2);
+    }
+    .leaflet-popup-content {
+        min-width: 200px;
+    }
+    .leaflet-popup-content a {
+        word-break: break-all;
+    }
+    .tooltip-icon {
+        cursor: help;
+        color: #6c757d;
+        margin-left: 5px;
+    }
+</style>
+{% endblock head %}
+
+{% block content %}
+<div class="geoextent-container">
+    <h1 class="mb-4">Geoextent extraction</h1>
+
+    <p class="text-muted mb-4">
+        Extract geospatial and temporal extent from your data files or remote repositories.
+        This tool analyzes files and returns bounding boxes, time ranges, and other metadata.
+    </p>
+
+    <!-- Input Form -->
+    <div class="card">
+        <div class="card-header">
+            <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" id="file-tab" data-toggle="tab" href="#file-upload" role="tab">Upload files</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="remote-tab" data-toggle="tab" href="#remote-resource" role="tab">Remote resources</a>
+                </li>
+            </ul>
+        </div>
+        <div class="card-body">
+            <div class="tab-content">
+                <!-- File Upload Tab -->
+                <div class="tab-pane fade show active" id="file-upload" role="tabpanel">
+                    <form id="file-upload-form">
+                        <div class="form-group">
+                            <label for="files">Select files</label>
+                            <div>
+                                <button type="button" class="btn btn-secondary" id="browse-files-btn">
+                                    <i class="fas fa-folder-open"></i> Browse files...
+                                </button>
+                                <input type="file" class="d-none" id="files" name="files" multiple accept=".geojson,.json,.shp,.gpkg,.kml,.kmz,.gml,.gpx,.fgb,.tif,.tiff,.csv,.zip">
+                            </div>
+                            <small class="form-text text-muted">
+                                Click "Browse Files..." to select files. You can click multiple times to add files from different locations.
+                                Supports individual files and ZIP archives containing multiple files.
+                                Maximum file size: {{ max_file_size_mb }}MB per file.
+                                Maximum batch size: {{ max_batch_size_mb }}MB total.
+                            </small>
+                        </div>
+                        <div id="selected-files-container" style="display:none;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong>Selected files (<span id="file-count">0</span>)</strong>
+                                <div>
+                                    <span class="text-muted small mr-3">Total: <span id="total-size">0 MB</span></span>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" id="clear-all-files">
+                                        <i class="fas fa-trash"></i> Clear all
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="selected-files" class="file-list"></div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Remote Resource Tab -->
+                <div class="tab-pane fade" id="remote-resource" role="tabpanel">
+                    <form id="remote-form">
+                        <div class="form-group">
+                            <label for="identifiers">Resource identifiers (DOIs or URLs)</label>
+                            <textarea class="form-control" id="identifiers" name="identifiers" rows="5"
+                                placeholder="Enter one DOI or repository URL per line&#10;Examples:&#10;10.5281/zenodo.4593540&#10;https://github.com/username/repo&#10;https://doi.org/10.1234/example"></textarea>
+                            <small class="form-text text-muted">
+                                Enter one identifier or URL per line. Maximum download size: {{ max_download_size_mb }}MB.
+                            </small>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="file_limit">File limit</label>
+                                <input type="number" class="form-control" id="file_limit" name="file_limit" value="10" min="1" max="100">
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="size_limit_mb">Size limit (MB)</label>
+                                <input type="number" class="form-control" id="size_limit_mb" name="size_limit_mb" value="100" min="1" max="{{ max_download_size_mb }}">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Common Options -->
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" data-toggle="collapse" data-target="#extraction-options-body">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chevron-right" id="extraction-options-icon"></i> Extraction options
+                    </h5>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-options-btn" title="Reset all extraction options to their default values">
+                        <i class="fas fa-undo"></i> Reset to defaults
+                    </button>
+                </div>
+                <div class="card-body collapse" id="extraction-options-body">
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label for="response_format">
+                                Output format
+                                <i class="fas fa-question-circle tooltip-icon"
+                                   title="Choose the format for the extracted spatial extent: GeoJSON (standard), WKT (text), or WKB (binary)"></i>
+                            </label>
+                            <select class="form-control" id="response_format" name="response_format">
+                                <option value="geojson" selected>GeoJSON (default)</option>
+                                <option value="wkt">Well-Known Text (WKT)</option>
+                                <option value="wkb">Well-Known Binary (WKB)</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label for="gazetteer">
+                                Gazetteer service
+                                <i class="fas fa-question-circle tooltip-icon"
+                                   title="Choose which geocoding service to use for place name lookups (when placename option is enabled)"></i>
+                            </label>
+                            <select class="form-control" id="gazetteer" name="gazetteer">
+                                <option value="nominatim" selected>Nominatim (default)</option>
+                                <option value="geonames">GeoNames</option>
+                                <option value="photon">Photon</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="bbox" name="bbox" checked>
+                                <label class="form-check-label" for="bbox">
+                                    Bounding box
+                                    <i class="fas fa-question-circle tooltip-icon"
+                                       title="Extract the minimum bounding rectangle (bbox) that encompasses all spatial features"></i>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="tbox" name="tbox">
+                                <label class="form-check-label" for="tbox">
+                                    Time box
+                                    <i class="fas fa-question-circle tooltip-icon"
+                                       title="Extract temporal extent (start and end time) from the data"></i>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="convex_hull" name="convex_hull">
+                                <label class="form-check-label" for="convex_hull">
+                                    Convex hull
+                                    <i class="fas fa-question-circle tooltip-icon"
+                                       title="Calculate the smallest convex polygon that contains all points (more accurate than bbox, but computationally expensive)"></i>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="placename" name="placename" checked>
+                                <label class="form-check-label" for="placename">
+                                    Place name
+                                    <i class="fas fa-question-circle tooltip-icon"
+                                       title="Reverse geocode the extent to find associated place names using the selected gazetteer service"></i>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="external_metadata" name="external_metadata" checked>
+                                <label class="form-check-label" for="external_metadata">
+                                    External metadata
+                                    <i class="fas fa-question-circle tooltip-icon"
+                                       title="Retrieve additional metadata from CrossRef/DataCite for DOIs (only applies to remote resources)"></i>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Extent Button (outside collapsible section) -->
+            <div class="mt-3">
+                <button type="button" class="btn btn-block" id="add-extent-btn" disabled style="background-color: #158F9B; border-color: #158F9B; color: white;">
+                    <span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>
+                    <i class="fas fa-plus"></i> Add extent to map
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map and Results Section -->
+    <div class="results-container" id="results">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Extracted extents (<span id="extent-count">0</span>)</h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" id="zoom-all-btn" title="Zoom map to show all extents">
+                        <i class="fas fa-expand"></i> Zoom to all
+                    </button>
+                    <button class="btn btn-sm btn-danger ml-2" id="clear-map-btn" title="Remove all extents from the map">
+                        <i class="fas fa-trash"></i> Clear map
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Map Preview -->
+                <div style="position: relative;">
+                    <div id="geoextent-map"></div>
+                </div>
+
+                <!-- Extraction List -->
+                <div id="extraction-list" class="mt-3">
+                    <!-- Dynamically populated -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Display -->
+    <div class="alert alert-danger" id="error-display" style="display:none;" role="alert">
+        <strong>Error:</strong> <span id="error-message"></span>
+    </div>
+
+    <!-- Documentation Section -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Documentation & supported formats <small class="text-muted">(geoextent v{{ geoextent_version }})</small></h5>
+        </div>
+        <div class="card-body">
+            <h6>Supported file formats</h6>
+            <p class="text-muted small">Formats are dynamically loaded from geoextent's features API.</p>
+            {% for format in supported_formats %}
+            <div class="mb-3">
+                <div>
+                    <strong>{{ format.name }}:</strong>
+                    {% for ext in format.extensions %}
+                    <span class="format-badge">.{{ ext }}</span>
+                    {% endfor %}
+                </div>
+                {% if format.description %}
+                <small class="text-muted d-block mt-1">{{ format.description }}</small>
+                {% endif %}
+            </div>
+            {% endfor %}
+            <p class="mt-2"><strong>ZIP archives:</strong> Upload ZIP files containing multiple data files. The extraction will process all supported files within the archive.</p>
+
+            <h6 class="mt-4">Supported repository providers</h6>
+            <p class="text-muted small">Provider information is dynamically loaded from geoextent's features API.</p>
+            <div style="column-count: 2; column-gap: 2rem;">
+            {% for provider in supported_providers %}
+            <div class="mb-3" style="break-inside: avoid;">
+                <div>
+                    <strong>
+                        {% if provider.website %}
+                        <a href="{{ provider.website }}" target="_blank" rel="noopener noreferrer">{{ provider.name }}</a>
+                        {% else %}
+                        {{ provider.name }}
+                        {% endif %}
+                    </strong>
+                </div>
+                {% if provider.description %}
+                <p class="text-muted small mb-1" style="word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; white-space: normal; max-width: 100%;">{{ provider.description }}</p>
+                {% endif %}
+                {% if provider.examples %}
+                <div class="text-muted small">
+                    <strong>Examples:</strong>
+                    <ul class="mb-0 mt-1" style="padding-left: 1.5rem;">
+                    {% for example in provider.examples %}
+                        <li style="word-wrap: break-word; overflow-wrap: break-word;">
+                            <a href="#" class="provider-example" data-example="{{ example }}" style="text-decoration: none;">
+                                <code style="cursor: pointer; color: #007bff;">{{ example }}</code>
+                            </a>
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            </div>
+
+            <h6 class="mt-4">External resources</h6>
+            <ul>
+                <li><a href="https://github.com/o2r-project/geoextent" target="_blank">Geoextent documentation</a></li>
+                <li><a href="/api/schema/ui/" target="_blank">OPTIMAP API documentation</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script src="{% static 'js/leaflet.js' %}"></script>
+<script>
+$(document).ready(function() {
+    let map = null;
+    let selectedFiles = [];
+    let extractions = []; // Array to store all extractions
+    let colorIndex = 0;
+    const colors = ['#158F9B', '#dc3545', '#28a745', '#ffc107', '#6f42c1', '#fd7e14', '#20c997', '#e83e8c'];
+
+    // Initialize tooltips with native title attribute (no Bootstrap tooltip)
+    // Using browser's native tooltips to avoid Popper.js dependency
+
+    // Get CSRF token from cookie
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Initialize map
+    function initMap() {
+        if (!map) {
+            map = L.map('geoextent-map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Fix map rendering after initialization
+            setTimeout(function() {
+                map.invalidateSize();
+            }, 100);
+        }
+    }
+
+    // Get next color
+    function getNextColor() {
+        const color = colors[colorIndex % colors.length];
+        colorIndex++;
+        return color;
+    }
+
+    // Create popup content for a feature
+    function createPopupContent(extraction) {
+        let html = '<div class="extraction-popup">';
+
+        // Source information
+        if (extraction.source) {
+            html += '<h6>' + extraction.source.name + '</h6>';
+            if (extraction.source.url) {
+                html += '<p class="mb-2"><a href="' + extraction.source.url + '" target="_blank">' + extraction.source.url + '</a></p>';
+            }
+            if (extraction.source.size) {
+                html += '<p class="mb-2"><small>Size: ' + extraction.source.size + '</small></p>';
+            }
+        }
+
+        // Metadata
+        const meta = extraction.data.geoextent_extraction;
+        if (meta) {
+            html += '<p class="mb-1"><strong>Version:</strong> ' + (meta.version || 'N/A') + '</p>';
+            html += '<p class="mb-1"><strong>Extent type:</strong> ' + (meta.extent_type || 'N/A') + '</p>';
+            if (meta.format) {
+                html += '<p class="mb-1"><strong>Format:</strong> ' + meta.format + '</p>';
+            }
+            if (meta.statistics) {
+                html += '<p class="mb-1"><strong>Files:</strong> ' + (meta.statistics.files_processed || 0) + '</p>';
+            }
+        }
+
+        // Temporal extent
+        if (extraction.data.features && extraction.data.features[0] &&
+            extraction.data.features[0].properties && extraction.data.features[0].properties.tbox) {
+            html += '<p class="mb-1"><strong>Time:</strong> ' +
+                    JSON.stringify(extraction.data.features[0].properties.tbox) + '</p>';
+        }
+
+        // Place name
+        if (extraction.data.features && extraction.data.features[0] &&
+            extraction.data.features[0].properties && extraction.data.features[0].properties.placename) {
+            html += '<p class="mb-1"><strong>Place name:</strong> ' +
+                    extraction.data.features[0].properties.placename + '</p>';
+        }
+
+        // External metadata (from features[0].properties.external_metadata)
+        const externalMetadataArray = extraction.data.features && extraction.data.features[0] &&
+                                       extraction.data.features[0].properties &&
+                                       extraction.data.features[0].properties.external_metadata;
+
+        if (externalMetadataArray && externalMetadataArray.length > 0) {
+            // external_metadata is an array, typically with one element
+            const extMeta = externalMetadataArray[0];
+            html += '<hr class="my-2">';
+            html += '<h6 class="mb-2">External metadata</h6>';
+
+            if (extMeta.title) {
+                html += '<p class="mb-1"><strong>Title:</strong> ' + extMeta.title + '</p>';
+            }
+            if (extMeta.authors && extMeta.authors.length > 0) {
+                html += '<p class="mb-1"><strong>Authors:</strong> ' + extMeta.authors.slice(0, 3).join(', ');
+                if (extMeta.authors.length > 3) html += ' <em>(+' + (extMeta.authors.length - 3) + ' more)</em>';
+                html += '</p>';
+            }
+            if (extMeta.publication_year) {
+                html += '<p class="mb-1"><strong>Year:</strong> ' + extMeta.publication_year + '</p>';
+            }
+            if (extMeta.abstract) {
+                const shortAbstract = extMeta.abstract.length > 200 ?
+                                      extMeta.abstract.substring(0, 200) + '...' :
+                                      extMeta.abstract;
+                html += '<p class="mb-1"><strong>Abstract:</strong> ' + shortAbstract + '</p>';
+            }
+            if (extMeta.source) {
+                html += '<p class="mb-1"><small><em>Source: ' + extMeta.source + '</em></small></p>';
+            }
+        }
+
+        // Remove button
+        html += '<button class="btn btn-sm btn-danger mt-2" onclick="removeExtraction(\'' + extraction.id + '\')">Remove</button>';
+
+        html += '</div>';
+        return html;
+    }
+
+    // Add extraction to map
+    function addExtractionToMap(extraction) {
+        if (!extraction.data.type === 'FeatureCollection') return;
+
+        initMap();
+
+        const color = getNextColor();
+        extraction.color = color;
+
+        const layer = L.geoJSON(extraction.data, {
+            style: function() {
+                return {
+                    color: color,
+                    weight: 3,
+                    fillOpacity: 0.2
+                };
+            },
+            pointToLayer: function(feature, latlng) {
+                return L.circleMarker(latlng, {
+                    radius: 8,
+                    fillColor: color,
+                    color: color,
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.5
+                });
+            },
+            onEachFeature: function(feature, layer) {
+                layer.bindPopup(createPopupContent(extraction));
+            }
+        }).addTo(map);
+
+        extraction.layer = layer;
+
+        // Fit bounds to show all extractions
+        const allLayers = extractions.filter(e => e.layer).map(e => e.layer);
+        if (allLayers.length > 0) {
+            const group = L.featureGroup(allLayers);
+
+            // Invalidate size before fitting bounds to ensure proper rendering
+            map.invalidateSize();
+
+            map.fitBounds(group.getBounds().pad(0.1));
+        }
+    }
+
+    // Update extraction list UI
+    function updateExtractionList() {
+        const container = $('#extraction-list');
+        const countEl = $('#extent-count');
+
+        countEl.text(extractions.length);
+
+        if (extractions.length === 0) {
+            $('#results').hide();
+            container.html('');
+            return;
+        }
+
+        // Show results and invalidate map size if it was hidden
+        const wasHidden = $('#results').is(':hidden');
+        $('#results').show();
+
+        if (wasHidden && map) {
+            // Map container just became visible, invalidate size
+            setTimeout(function() {
+                map.invalidateSize();
+            }, 100);
+        }
+
+        let html = '';
+        extractions.forEach((extraction, index) => {
+            const meta = extraction.data.geoextent_extraction || {};
+
+            // Get title from external metadata if available
+            const externalMetadataArray = extraction.data.features && extraction.data.features[0] &&
+                                           extraction.data.features[0].properties &&
+                                           extraction.data.features[0].properties.external_metadata;
+            const externalTitle = externalMetadataArray && externalMetadataArray.length > 0 &&
+                                  externalMetadataArray[0].title;
+
+            const sourceName = externalTitle || (extraction.source ? extraction.source.name : 'Unknown');
+
+            html += '<div class="extraction-item" style="border-left-color: ' + extraction.color + ';">';
+            html += '  <div class="extraction-item-info">';
+            html += '    <div class="extraction-item-title">' + sourceName + '</div>';
+            html += '    <div class="extraction-item-meta">';
+            html += '      ' + (meta.extent_type || 'N/A') + ' • ';
+            html += '      ' + (meta.statistics ? meta.statistics.files_processed + ' file(s)' : '');
+            if (extraction.source && extraction.source.size) {
+                html += ' • ' + extraction.source.size;
+            }
+            html += '    </div>';
+            html += '  </div>';
+            html += '  <div class="extraction-item-actions">';
+            html += '    <button class="btn btn-sm btn-outline-primary" onclick="zoomToExtraction(\'' + extraction.id + '\')" title="Zoom to this extent on the map"><i class="fas fa-search-location"></i></button>';
+            html += '    <button class="btn btn-sm btn-outline-secondary" onclick="toggleDetails(\'' + extraction.id + '\')" title="View raw JSON output"><i class="fas fa-eye"></i></button>';
+            html += '    <button class="btn btn-sm btn-outline-secondary" onclick="downloadExtraction(\'' + extraction.id + '\')" title="Download extraction result"><i class="fas fa-download"></i></button>';
+            html += '    <button class="btn btn-sm btn-outline-danger" onclick="removeExtraction(\'' + extraction.id + '\')" title="Remove this extent from the map"><i class="fas fa-trash"></i></button>';
+            html += '  </div>';
+            html += '</div>';
+            html += '<div class="extraction-details" id="details-' + extraction.id + '">';
+            html += '  <pre>' + JSON.stringify(extraction.data, null, 2) + '</pre>';
+            html += '</div>';
+        });
+
+        container.html(html);
+    }
+
+    // Global functions for onclick handlers
+    window.zoomToExtraction = function(id) {
+        const extraction = extractions.find(e => e.id === id);
+        if (extraction && extraction.layer) {
+            map.fitBounds(extraction.layer.getBounds().pad(0.2));
+        }
+    };
+
+    window.toggleDetails = function(id) {
+        $('#details-' + id).toggleClass('show');
+    };
+
+    window.downloadExtraction = function(id) {
+        const extraction = extractions.find(e => e.id === id);
+        if (!extraction) return;
+
+        const format = $('#response_format').val();
+        let filename = 'geoextent_' + id;
+        let content = '';
+        let mimeType = 'application/json';
+
+        if (format === 'geojson') {
+            filename += '.geojson';
+            content = JSON.stringify(extraction.data, null, 2);
+        } else if (format === 'wkt' && extraction.data.wkt) {
+            filename += '.wkt';
+            content = extraction.data.wkt;
+            mimeType = 'text/plain';
+        } else if (format === 'wkb' && extraction.data.wkb) {
+            filename += '.wkb';
+            content = extraction.data.wkb;
+            mimeType = 'application/octet-stream';
+        }
+
+        const blob = new Blob([content], { type: mimeType });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    };
+
+    window.removeExtraction = function(id) {
+        const index = extractions.findIndex(e => e.id === id);
+        if (index === -1) return;
+
+        const extraction = extractions[index];
+        if (extraction.layer && map) {
+            map.removeLayer(extraction.layer);
+        }
+
+        extractions.splice(index, 1);
+        updateExtractionList();
+    };
+
+    // Zoom to all extractions
+    $('#zoom-all-btn').on('click', function() {
+        const allLayers = extractions.filter(e => e.layer).map(e => e.layer);
+        if (allLayers.length > 0) {
+            const group = L.featureGroup(allLayers);
+            map.fitBounds(group.getBounds().pad(0.1));
+        }
+    });
+
+    // Clear all extractions
+    $('#clear-map-btn').on('click', function() {
+        if (confirm('Remove all extracted extents from the map?')) {
+            extractions.forEach(extraction => {
+                if (extraction.layer && map) {
+                    map.removeLayer(extraction.layer);
+                }
+            });
+            extractions = [];
+            colorIndex = 0;
+            updateExtractionList();
+        }
+    });
+
+    // Reset extraction options to defaults
+    $('#reset-options-btn').on('click', function(e) {
+        e.stopPropagation(); // Prevent collapse toggle
+        $('#response_format').val('geojson');
+        $('#gazetteer').val('nominatim');
+        $('#bbox').prop('checked', true);
+        $('#tbox').prop('checked', false);
+        $('#convex_hull').prop('checked', false);
+        $('#placename').prop('checked', true);
+        $('#external_metadata').prop('checked', true);
+    });
+
+    // Show error with network detection
+    function showError(message, isNetworkError = false) {
+        let errorText = message;
+        if (isNetworkError || message.includes('Failed to fetch') || message.includes('NetworkError')) {
+            errorText = 'Unable to connect to the server. Please check your connection and try again. (' + message + ')';
+        }
+        $('#error-message').text(errorText);
+        $('#error-display').slideDown();
+        setTimeout(() => {
+            $('#error-display').slideUp();
+        }, 10000);
+    }
+
+    // Get common parameters
+    function getCommonParams() {
+        return {
+            bbox: $('#bbox').is(':checked'),
+            tbox: $('#tbox').is(':checked'),
+            convex_hull: $('#convex_hull').is(':checked'),
+            placename: $('#placename').is(':checked'),
+            response_format: $('#response_format').val(),
+            gazetteer: $('#gazetteer').val(),
+            external_metadata: $('#external_metadata').is(':checked'),
+            external_metadata_method: 'auto'
+        };
+    }
+
+    // Update file list display
+    function updateFileList() {
+        const container = $('#selected-files-container');
+        const fileList = $('#selected-files');
+        const fileCountEl = $('#file-count');
+        const totalSizeEl = $('#total-size');
+        const addBtn = $('#add-extent-btn');
+
+        if (selectedFiles.length === 0) {
+            container.hide();
+            addBtn.prop('disabled', true);
+            return;
+        }
+
+        container.show();
+        addBtn.prop('disabled', false);
+
+        let totalSize = 0;
+        selectedFiles.forEach(file => {
+            totalSize += file.size;
+        });
+
+        fileCountEl.text(selectedFiles.length);
+        totalSizeEl.text((totalSize / (1024 * 1024)).toFixed(2) + ' MB');
+
+        let html = '';
+        selectedFiles.forEach((file, index) => {
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            const isZip = file.name.toLowerCase().endsWith('.zip');
+            html += '<div class="file-item" data-index="' + index + '">';
+            html += '  <div class="file-item-info">';
+            html += '    <div class="file-item-name" title="' + file.name + '">';
+            if (isZip) html += '<i class="fas fa-file-archive"></i> ';
+            html += file.name + '</div>';
+            html += '    <div class="file-item-size">' + sizeMB + ' MB</div>';
+            html += '  </div>';
+            html += '  <span class="file-item-remove" data-index="' + index + '" title="Remove file">';
+            html += '    <i class="fas fa-times-circle"></i>';
+            html += '  </span>';
+            html += '</div>';
+        });
+
+        fileList.html(html);
+    }
+
+    // Add files to selection
+    function addFiles(newFiles) {
+        const maxFileSizeMB = {{ max_file_size_mb }};
+        const maxBatchSizeMB = {{ max_batch_size_mb }};
+
+        for (let i = 0; i < newFiles.length; i++) {
+            const file = newFiles[i];
+
+            const duplicate = selectedFiles.some(f =>
+                f.name === file.name && f.size === file.size && f.lastModified === file.lastModified
+            );
+
+            if (duplicate) continue;
+
+            const sizeMB = file.size / (1024 * 1024);
+            if (sizeMB > maxFileSizeMB) {
+                showError('File "' + file.name + '" exceeds maximum size of ' + maxFileSizeMB + 'MB');
+                continue;
+            }
+
+            selectedFiles.push(file);
+        }
+
+        let totalSize = 0;
+        selectedFiles.forEach(file => {
+            totalSize += file.size / (1024 * 1024);
+        });
+
+        if (totalSize > maxBatchSizeMB) {
+            showError('Total batch size (' + totalSize.toFixed(2) + 'MB) exceeds maximum of ' + maxBatchSizeMB + 'MB. Some files may need to be removed.');
+        }
+
+        updateFileList();
+    }
+
+    // Remove file from selection
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        updateFileList();
+    }
+
+    // Clear all files
+    function clearAllFiles() {
+        selectedFiles = [];
+        updateFileList();
+        $('#files').val('');
+    }
+
+    // Browse files button
+    $('#browse-files-btn').on('click', function() {
+        $('#files').click();
+    });
+
+    // File input change
+    $('#files').on('change', function() {
+        const files = Array.from(this.files);
+        if (files.length > 0) {
+            addFiles(files);
+        }
+        $(this).val('');
+    });
+
+    // Remove individual file
+    $(document).on('click', '.file-item-remove', function() {
+        const index = $(this).data('index');
+        removeFile(index);
+    });
+
+    // Clear all files
+    $('#clear-all-files').on('click', function() {
+        if (confirm('Remove all selected files?')) {
+            clearAllFiles();
+        }
+    });
+
+    // Enable add extent button for remote tab
+    $('#identifiers').on('input', function() {
+        $('#add-extent-btn').prop('disabled', !$(this).val().trim());
+    });
+
+    // Add extent button click
+    $('#add-extent-btn').on('click', function() {
+        const activeTab = $('.tab-pane.active').attr('id');
+
+        if (activeTab === 'file-upload') {
+            $('#file-upload-form').submit();
+        } else {
+            $('#remote-form').submit();
+        }
+    });
+
+    // File upload form submission
+    $('#file-upload-form').on('submit', function(e) {
+        e.preventDefault();
+
+        if (selectedFiles.length === 0) {
+            showError('Please select at least one file');
+            return;
+        }
+
+        const maxBatchSizeMB = {{ max_batch_size_mb }};
+        let batchTotalSize = 0;
+
+        selectedFiles.forEach(file => {
+            batchTotalSize += file.size / (1024 * 1024);
+        });
+
+        if (batchTotalSize > maxBatchSizeMB) {
+            showError('Total batch size (' + batchTotalSize.toFixed(2) + 'MB) exceeds maximum of ' + maxBatchSizeMB + 'MB. Please remove some files.');
+            return;
+        }
+
+        const formData = new FormData();
+
+        // Check for ZIP files
+        const hasZip = selectedFiles.some(f => f.name.toLowerCase().endsWith('.zip'));
+
+        if (selectedFiles.length === 1 && !hasZip) {
+            formData.append('file', selectedFiles[0]);
+        } else {
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+        }
+
+        const params = getCommonParams();
+        for (const [key, value] of Object.entries(params)) {
+            formData.append(key, value);
+        }
+
+        const endpoint = (selectedFiles.length === 1 && !hasZip) ?
+                        '/api/v1/geoextent/extract/' :
+                        '/api/v1/geoextent/extract-batch/';
+
+        $('#add-extent-btn').addClass('loading').prop('disabled', true);
+        $('#error-display').hide();
+
+        fetch(endpoint, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.error || err.detail || 'An error occurred during extraction');
+                }).catch(() => {
+                    throw new Error('Server returned error: ' + response.status);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            const extraction = {
+                id: 'ext_' + Date.now(),
+                data: data,
+                source: {
+                    name: selectedFiles.map(f => f.name).join(', '),
+                    size: (selectedFiles.reduce((sum, f) => sum + f.size, 0) / (1024 * 1024)).toFixed(2) + ' MB'
+                }
+            };
+
+            extractions.push(extraction);
+            addExtractionToMap(extraction);
+            updateExtractionList();
+
+            // Clear selected files after successful extraction
+            clearAllFiles();
+
+            $('#add-extent-btn').removeClass('loading').prop('disabled', true);
+        })
+        .catch(error => {
+            showError(error.message, error.message.includes('fetch'));
+            $('#add-extent-btn').removeClass('loading').prop('disabled', false);
+        });
+    });
+
+    // Remote form submission
+    $('#remote-form').on('submit', function(e) {
+        e.preventDefault();
+
+        const identifiers = $('#identifiers').val().trim();
+        if (!identifiers) {
+            showError('Please enter at least one identifier');
+            return;
+        }
+
+        const data = getCommonParams();
+        data.identifiers = identifiers.split('\n').map(id => id.trim()).filter(id => id);
+        data.file_limit = parseInt($('#file_limit').val());
+        data.size_limit_mb = parseInt($('#size_limit_mb').val());
+
+        const maxDownloadMB = {{ max_download_size_mb }};
+        if (data.size_limit_mb > maxDownloadMB) {
+            showError('Size limit exceeds maximum of ' + maxDownloadMB + 'MB');
+            return;
+        }
+
+        $('#add-extent-btn').addClass('loading').prop('disabled', true);
+        $('#error-display').hide();
+
+        fetch('/api/v1/geoextent/extract-remote/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.error || err.detail || 'An error occurred during extraction');
+                }).catch(() => {
+                    throw new Error('Server returned error: ' + response.status);
+                });
+            }
+            return response.json();
+        })
+        .then(result => {
+            const extraction = {
+                id: 'ext_' + Date.now(),
+                data: result,
+                source: {
+                    name: data.identifiers.join(', '),
+                    url: data.identifiers.length === 1 ?
+                         (data.identifiers[0].startsWith('http') ? data.identifiers[0] : 'https://doi.org/' + data.identifiers[0]) :
+                         null
+                }
+            };
+
+            extractions.push(extraction);
+            addExtractionToMap(extraction);
+            updateExtractionList();
+
+            // Clear form after successful extraction
+            $('#identifiers').val('');
+
+            $('#add-extent-btn').removeClass('loading').prop('disabled', true);
+        })
+        .catch(error => {
+            showError(error.message, error.message.includes('fetch'));
+            $('#add-extent-btn').removeClass('loading').prop('disabled', false);
+        });
+    });
+
+    // Initialize map on page load
+    initMap();
+
+    // Toggle collapse arrow icon for extraction options
+    $('#extraction-options-body').on('show.bs.collapse', function() {
+        $('#extraction-options-icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
+    }).on('hide.bs.collapse', function() {
+        $('#extraction-options-icon').removeClass('fa-chevron-down').addClass('fa-chevron-right');
+    });
+
+    // Handle clicks on provider examples
+    $('.provider-example').on('click', function(e) {
+        e.preventDefault();
+        const example = $(this).data('example');
+
+        // Switch to remote resource tab if not already active
+        if (!$('#remote-resource').hasClass('active')) {
+            $('#remote-tab').tab('show');
+        }
+
+        // Append the example to identifiers field (add new line if not empty)
+        const currentValue = $('#identifiers').val().trim();
+        const newValue = currentValue ? currentValue + '\n' + example : example;
+        $('#identifiers').val(newValue).trigger('input').focus();
+
+        // Scroll to bottom of textarea
+        const textarea = $('#identifiers')[0];
+        textarea.scrollTop = textarea.scrollHeight;
+    });
+});
+</script>
+{% endblock scripts %}

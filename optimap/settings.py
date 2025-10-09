@@ -51,7 +51,6 @@ DATA_DUMP_RETENTION = int(os.getenv("OPTIMAP_DATA_DUMP_RETENTION", 3))
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
-    "sesame.backends.ModelBackend",
 ]
 
 INSTALLED_APPS = [
@@ -215,6 +214,25 @@ EMAIL_SEND_DELAY = 2
 DATA_DUMP_INTERVAL_HOURS = 6
 OPENALEX_MAILTO = "login@optimap.science"
 
+# Geoextent API settings
+GEOEXTENT_MAX_FILE_SIZE_MB = int(os.getenv("OPTIMAP_GEOEXTENT_MAX_FILE_SIZE_MB", 100))
+GEOEXTENT_PROCESSING_TIMEOUT_SECONDS = int(os.getenv("OPTIMAP_GEOEXTENT_TIMEOUT", 30))
+GEOEXTENT_TEMP_DIR = os.getenv("OPTIMAP_GEOEXTENT_TEMP_DIR", "/tmp/optimap_geoextent")
+
+# Download limits - server-enforced maximums that cap user requests
+GEOEXTENT_MAX_DOWNLOAD_SIZE_MB = int(os.getenv("OPTIMAP_GEOEXTENT_MAX_DOWNLOAD_SIZE_MB", 1000))
+GEOEXTENT_MAX_BATCH_SIZE_MB = int(os.getenv("OPTIMAP_GEOEXTENT_MAX_BATCH_SIZE_MB", 500))
+
+# Download workers for parallel processing (remote and batch operations)
+GEOEXTENT_DOWNLOAD_WORKERS = int(os.getenv("OPTIMAP_GEOEXTENT_DOWNLOAD_WORKERS", 4))
+
+# Placename/gazetteer settings
+GEOEXTENT_DEFAULT_GAZETTEER = os.getenv("OPTIMAP_GEOEXTENT_DEFAULT_GAZETTEER", "nominatim")
+GEOEXTENT_GAZETTEER_TIMEOUT_SECONDS = int(os.getenv("OPTIMAP_GEOEXTENT_GAZETTEER_TIMEOUT_SECONDS", 5))
+
+# GeoNames API configuration (if using geonames gazetteer)
+GEOEXTENT_GEONAMES_USERNAME = os.getenv("OPTIMAP_GEOEXTENT_GEONAMES_USERNAME", "")
+
 MIDDLEWARE = [
     'django.middleware.cache.UpdateCacheMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -231,7 +249,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.sites.middleware.CurrentSiteMiddleware",
-    "sesame.middleware.AuthenticationMiddleware",
     "django_currentuser.middleware.ThreadLocalUserMiddleware",
     "django.middleware.gzip.GZipMiddleware",
 

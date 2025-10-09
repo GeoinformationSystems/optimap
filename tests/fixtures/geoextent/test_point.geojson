@@ -1,0 +1,11 @@
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [13.405, 52.52]
+  },
+  "properties": {
+    "name": "Berlin",
+    "date": "2023-01-15"
+  }
+}

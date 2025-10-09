@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(python manage.py shell:*)",
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Read(//home/daniel/git/geoextent/geoextent/lib/**)",
+      "Read(//home/daniel/git/geoextent/**)",
+      "Bash(docker compose run:*)",
+      "Bash(docker compose exec:*)",
+      "Bash(docker compose:*)",
+      "Bash(OPTIMAP_LOGGING_LEVEL=WARNING python manage.py test tests.test_geoextent)",
+      "Bash(OPTIMAP_LOGGING_LEVEL=WARNING python manage.py test tests.test_geoextent.GeoextentRemoteGetTest)",
+      "Bash(geoextent:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Read(//home/daniel/.cache/**)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(OPTIMAP_LOGGING_LEVEL=WARNING python manage.py test tests)",
+      "Bash(export OPTIMAP_LOGGING_LEVEL=WARNING)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
