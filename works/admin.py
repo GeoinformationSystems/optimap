@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
+import os
+
 logger = logging.getLogger(__name__)
 
 from django.contrib import admin, messages
@@ -12,7 +14,7 @@ from django.core.mail import send_mail
 from leaflet.admin import LeafletGeoAdmin
 from works.models import Work, Source, HarvestingEvent, BlockedEmail, BlockedDomain, GlobalRegion, Collection
 from import_export.admin import ImportExportModelAdmin
-from works.models import Contribution, EmailLog, Subscription, UserProfile, WikidataExportLog
+from works.models import Contribution, EmailLog, Subscription, UserProfile, WikidataExportLog, ZenodoDepositionLog
 from works.tasks import schedule_subscription_email_task, send_monthly_email, schedule_monthly_email_task, send_subscription_based_email
 from django_q.models import Schedule
 from django_q.tasks import async_task
@@ -22,6 +24,54 @@ from works.tasks import regenerate_all_data_dumps
 from django.test import Client
 from django.http import HttpResponse
 from works.wikidata import export_works_to_wikidata, export_works_to_wikidata_dryrun
+from works.zenodo import render_zenodo_package, deposit_to_zenodo
+
+@admin.action(description="Trigger Zenodo Deposition")
+def trigger_zenodo_deposition(modeladmin, request, queryset):
+    """
+    Admin action to trigger a complete Zenodo deposition (render + upload).
+    Note: This action doesn't filter by queryset - it deposits ALL works.
+    """
+    try:
+        # Step 1: Render package
+        messages.info(request, "Step 1/2: Rendering Zenodo package...")
+        result = render_zenodo_package()
+        messages.success(request, f"✓ Rendered version {result['version']}")
+
+        # Step 2: Deposit to Zenodo
+        messages.info(request, "Step 2/2: Depositing to Zenodo...")
+
+        # Resolve deposition ID from settings — optional. When unset,
+        # deposit_to_zenodo() reuses the latest from the log or bootstraps
+        # a fresh draft via POST /deposit/depositions.
+        deposition_id = os.getenv("ZENODO_SANDBOX_DEPOSITION_ID") or getattr(
+            settings, "ZENODO_SANDBOX_DEPOSITION_ID", None
+        )
+
+        log_entry = deposit_to_zenodo(
+            deposition_id=str(deposition_id) if deposition_id else None
+        )
+
+        if log_entry.status == 'success':
+            messages.success(
+                request,
+                f"✓ Successfully deposited {log_entry.works_count} works to Zenodo (version {log_entry.version})"
+            )
+            if log_entry.zenodo_url:
+                messages.info(
+                    request,
+                    format_html(
+                        'Review draft deposition at: <a href="{}" target="_blank">{}</a>',
+                        log_entry.zenodo_url,
+                        log_entry.zenodo_url
+                    )
+                )
+        else:
+            messages.error(request, f"✗ Deposition failed: {log_entry.error_message}")
+
+    except Exception as ex:
+        messages.error(request, f"Deposition failed: {ex}")
+        logger.exception("Zenodo deposition failed from admin action")
 
 @admin.action(description="Export selected works to Wikidata/Wikibase")
 def export_to_wikidata(modeladmin, request, queryset):
@@ -229,7 +279,8 @@ class WorkAdmin(LeafletGeoAdmin, ImportExportModelAdmin):
     readonly_fields = ("created_by", "updated_by", "openalex_link")
     actions = [make_public, make_draft, regenerate_all_exports,
                "export_permalinks_csv", "email_permalinks_preview",
-               export_to_wikidata, export_to_wikidata_dryrun]
+               export_to_wikidata, export_to_wikidata_dryrun,
+               trigger_zenodo_deposition]
 
     @admin.display(boolean=True, description="Has DOI")
     def has_permalink(self, obj):
@@ -587,6 +638,160 @@ class WikidataExportLogAdmin(admin.ModelAdmin):
                 obj.error_message
             )
         return "—"
+
+
+@admin.register(ZenodoDepositionLog)
+class ZenodoDepositionLogAdmin(admin.ModelAdmin):
+    """Admin interface for Zenodo deposition logs."""
+    list_display = (
+        "id",
+        "deposition_date",
+        "status",
+        "deposition_id",
+        "version",
+        "works_count",
+        "total_size_display",
+        "duration_display",
+        "zenodo_link",
+    )
+    list_filter = ("status", "deposition_date", "api_base")
+    search_fields = (
+        "deposition_id",
+        "doi",
+        "version",
+        "deposition_summary",
+        "error_message",
+    )
+    readonly_fields = (
+        "deposition_date",
+        "status",
+        "deposition_id",
+        "doi",
+        "zenodo_link_display",
+        "api_base",
+        "version",
+        "files_uploaded_display",
+        "metadata_merged_display",
+        "works_count",
+        "total_size_bytes",
+        "upload_duration_seconds",
+        "error_message_display",
+        "error_details_display",
+        "deposition_summary",
+        "notes",
+    )
+    fields = (
+        "deposition_date",
+        "status",
+        "deposition_id",
+        "doi",
+        "zenodo_link_display",
+        "api_base",
+        "version",
+        "works_count",
+        "total_size_bytes",
+        "upload_duration_seconds",
+        "files_uploaded_display",
+        "metadata_merged_display",
+        "deposition_summary",
+        "notes",
+        "error_message_display",
+        "error_details_display",
+    )
+    ordering = ("-deposition_date",)
+    date_hierarchy = "deposition_date"
+
+    @admin.display(description="Zenodo")
+    def zenodo_link(self, obj):
+        if obj.zenodo_url:
+            return format_html(
+                '<a href="{}" target="_blank" rel="noopener"><i class="fas fa-external-link-alt"></i> {}</a>',
+                obj.zenodo_url,
+                obj.deposition_id
+            )
+        return obj.deposition_id
+
+    @admin.display(description="Zenodo Link")
+    def zenodo_link_display(self, obj):
+        if obj.zenodo_url:
+            return format_html(
+                '<a href="{}" target="_blank" rel="noopener">{}</a>',
+                obj.zenodo_url,
+                obj.zenodo_url
+            )
+        elif obj.deposition_id:
+            return format_html(
+                '{}/deposit/{} (view in Zenodo UI)',
+                obj.api_base.replace('/api', ''),
+                obj.deposition_id
+            )
+        return "—"
+
+    @admin.display(description="Size")
+    def total_size_display(self, obj):
+        if obj.total_size_bytes:
+            # Convert bytes to human-readable format
+            for unit in ['B', 'KB', 'MB', 'GB']:
+                if obj.total_size_bytes < 1024.0:
+                    return f"{obj.total_size_bytes:.1f} {unit}"
+                obj.total_size_bytes /= 1024.0
+            return f"{obj.total_size_bytes:.1f} TB"
+        return "—"
+
+    @admin.display(description="Duration")
+    def duration_display(self, obj):
+        if obj.upload_duration_seconds:
+            minutes = int(obj.upload_duration_seconds // 60)
+            seconds = int(obj.upload_duration_seconds % 60)
+            if minutes > 0:
+                return f"{minutes}m {seconds}s"
+            return f"{seconds}s"
+        return "—"
+
+    @admin.display(description="Files Uploaded")
+    def files_uploaded_display(self, obj):
+        if obj.files_uploaded:
+            files_html = "<ul style='margin: 0; padding-left: 20px;'>"
+            for file_info in obj.files_uploaded:
+                if isinstance(file_info, dict):
+                    name = file_info.get('name', '?')
+                    size = file_info.get('size', 0)
+                    files_html += f"<li>{name} ({size:,} bytes)</li>"
+                else:
+                    files_html += f"<li>{file_info}</li>"
+            files_html += "</ul>"
+            return format_html(files_html)
+        return "—"
+
+    @admin.display(description="Metadata Merged")
+    def metadata_merged_display(self, obj):
+        if obj.metadata_merged:
+            import json
+            return format_html(
+                '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; border-radius: 4px; max-height: 300px; overflow-y: auto;">{}</pre>',
+                json.dumps(obj.metadata_merged, indent=2)
+            )
+        return "—"
+
+    @admin.display(description="Error Message")
+    def error_message_display(self, obj):
+        if obj.error_message:
+            return format_html(
+                '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #ffebee; padding: 10px; border: 1px solid #ef5350; border-radius: 4px; max-height: 400px; overflow-y: auto;">{}</pre>',
+                obj.error_message
+            )
+        return "—"
+
+    @admin.display(description="Error Details")
+    def error_details_display(self, obj):
+        if obj.error_details:
+            import json
+            return format_html(
+                '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #ffebee; padding: 10px; border: 1px solid #ef5350; border-radius: 4px; max-height: 400px; overflow-y: auto;">{}</pre>',
+                json.dumps(obj.error_details, indent=2)
+            )
+        return "—"
+
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):

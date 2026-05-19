@@ -162,6 +162,19 @@ works/management/commands/goas_v01_simplified_0.1-90.geojson
 
 works/management/commands/goas_v01_simplified-0.05-80.geojson
 
+# Zenodo data artifacts (rendered per-environment; never commit sandbox state)
+data/optimap-main.zip
+data/*.gpkg
+data/*.geojson
+data/*.geojson.gz
+data/*.csv
+data/*.csv.gz
+data/README.md
+data/zenodo_dynamic.json
+
+# Test environment files (may contain secrets)
+tests/.env
+
 works/management/commands/goas_v01_simplified.geojson
 
 works/management/commands/goas_v01.gpkg

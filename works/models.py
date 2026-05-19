@@ -779,3 +779,111 @@ class Contribution(models.Model):
         who = self.user.username if self.user else "(deleted)"
         return f"{who} → {self.get_kind_display()} on {self.work_id}"
 
+class ZenodoDepositionLog(models.Model):
+    """
+    Log of Zenodo depositions.
+    Tracks when data was deposited to Zenodo, success/failure status,
+    file uploads, metadata updates, and any errors encountered.
+    """
+    STATUS_CHOICES = [
+        ('success', 'Success'),
+        ('partial', 'Partial Success'),
+        ('failed', 'Failed'),
+    ]
+
+    deposition_date = models.DateTimeField(auto_now_add=True, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, db_index=True)
+
+    # Zenodo-specific identifiers
+    deposition_id = models.CharField(
+        max_length=50,
+        db_index=True,
+        help_text='Zenodo deposition ID'
+    )
+    doi = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text='DOI assigned by Zenodo (if published)'
+    )
+    zenodo_url = models.URLField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text='URL to Zenodo record'
+    )
+
+    # API endpoint used
+    api_base = models.URLField(
+        max_length=512,
+        help_text='Zenodo API base URL (sandbox or production)'
+    )
+
+    # What was deposited
+    version = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text='Zenodo deposit version label (e.g. "v1", "v2"); next-version counter for this api_base.'
+    )
+    files_uploaded = models.JSONField(
+        blank=True,
+        null=True,
+        help_text='List of files uploaded (names and sizes)'
+    )
+    metadata_merged = models.JSONField(
+        blank=True,
+        null=True,
+        help_text='Metadata fields that were updated'
+    )
+
+    # Statistics
+    works_count = models.IntegerField(
+        default=0,
+        help_text='Number of works included in this deposition'
+    )
+    total_size_bytes = models.BigIntegerField(
+        default=0,
+        help_text='Total size of uploaded files in bytes'
+    )
+    upload_duration_seconds = models.FloatField(
+        blank=True,
+        null=True,
+        help_text='Time taken to upload all files'
+    )
+
+    # Error tracking
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Error message if deposition failed'
+    )
+    error_details = models.JSONField(
+        blank=True,
+        null=True,
+        help_text='Detailed error information (stack trace, API response, etc.)'
+    )
+
+    # Summary and notes
+    deposition_summary = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Human-readable summary of the deposition'
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Additional notes or comments'
+    )
+
+    class Meta:
+        ordering = ['-deposition_date']
+        verbose_name = 'Zenodo Deposition Log'
+        verbose_name_plural = 'Zenodo Deposition Logs'
+        indexes = [
+            models.Index(fields=['deposition_id'], name='works_zenodo_dep_id_idx'),
+            models.Index(fields=['doi'], name='works_zenodo_doi_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.status.capitalize()} deposition {self.deposition_id} on {self.deposition_date.strftime('%Y-%m-%d %H:%M')}"

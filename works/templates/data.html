@@ -94,6 +94,82 @@ curl -X GET {{ site|addstr:"/api" }}/api/optimap/ | jq
       {% endif %}
     </p>
 
+    {% if latest_zenodo %}
+    <hr class="my-5">
+
+    <h2 class="py-2">Zenodo Archive</h2>
+    <p>
+      The OPTIMAP dataset is regularly archived on Zenodo for long-term preservation and citability.
+    </p>
+
+    <div class="card border-success mb-4">
+      <div class="card-body">
+        <h5 class="card-title">
+          <i class="bi bi-check-circle-fill text-success"></i>
+          Latest Deposition
+        </h5>
+        <div class="row">
+          <div class="col-md-6">
+            <p class="mb-2">
+              <strong>Version:</strong> {{ latest_zenodo.version|default:"N/A" }}<br>
+              <strong>Date:</strong> {{ latest_zenodo.deposition_date|date:"Y-m-d H:i" }} UTC<br>
+              <strong>Works included:</strong> {{ latest_zenodo.works_count|intcomma }}<br>
+              <strong>Files uploaded:</strong> {{ latest_zenodo.files_uploaded|length }}<br>
+              <strong>Total size:</strong>
+              {% if latest_zenodo.total_size_bytes %}
+                {% load humanize %}
+                {{ latest_zenodo.total_size_bytes|filesizeformat }}
+              {% else %}
+                N/A
+              {% endif %}
+            </p>
+          </div>
+          <div class="col-md-6">
+            {% if latest_zenodo.zenodo_url %}
+            <p class="mb-2">
+              <a href="{{ latest_zenodo.zenodo_url }}" target="_blank" class="btn btn-success btn-sm">
+                <i class="bi bi-box-arrow-up-right"></i> View on Zenodo
+              </a>
+            </p>
+            {% endif %}
+            {% if latest_zenodo.doi %}
+            <p class="mb-2 small">
+              <strong>DOI:</strong>
+              <a href="https://doi.org/{{ latest_zenodo.doi }}" target="_blank">{{ latest_zenodo.doi }}</a>
+            </p>
+            {% endif %}
+            {% if latest_zenodo.deposition_summary %}
+            <p class="small text-muted mb-0">
+              {{ latest_zenodo.deposition_summary|truncatewords:30 }}
+            </p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if latest_zenodo.doi %}
+    <div class="card border-secondary mb-4">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-3 text-muted">
+          <i class="bi bi-quote"></i> Citation
+        </h6>
+        <p class="mb-2 font-monospace small" style="line-height: 1.8;">
+          OPTIMAP Contributors. ({{ latest_zenodo.deposition_date.year }}).
+          <em>OPTIMAP FAIR Data Package</em>
+          {% if latest_zenodo.version %}({{ latest_zenodo.version }}){% endif %}.
+          Zenodo.
+          <a href="https://doi.org/{{ latest_zenodo.doi }}" target="_blank">https://doi.org/{{ latest_zenodo.doi }}</a>
+        </p>
+        <button class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText.trim()); this.innerHTML='<i class=\'bi bi-check\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\'bi bi-clipboard\'></i> Copy citation', 2000)">
+          <i class="bi bi-clipboard"></i> Copy citation
+        </button>
+      </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+
   </div>
 </div>
 {% endblock %}

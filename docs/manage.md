@@ -454,6 +454,49 @@ The following sections are **suggested, not yet written**. They cover the rest o
 - What gets exported, on what cadence, and how to trigger an export.
 - Reading the export log on the change page (mirrors the harvesting-event log pattern).
 
+### Manage Zenodo data deposition
+
+Issue #63 — the full cycle is: regenerate the public data dumps, render `data/README.md` + a versioned `data/optimap-main.zip` + `data/zenodo_dynamic.json`, then upload/update a Zenodo draft. **Publishing the draft remains a manual step** (admins receive an email with the draft URL).
+
+**Settings (env or `.env`):**
+
+- `ZENODO_API_TOKEN` — Zenodo (or sandbox) personal access token. Required.
+- `ZENODO_API_BASE` — defaults to `https://sandbox.zenodo.org/api`. Set to `https://zenodo.org/api` for production.
+- `ZENODO_SANDBOX_DEPOSITION_ID` — optional. If unset, the deposit step **reuses the latest successful `ZenodoDepositionLog.deposition_id`** for the target `api_base`; if there is no prior log either, it **bootstraps a fresh draft** via `POST /deposit/depositions`. Sandbox and production each track their own counter.
+
+**Trigger a deposition manually:**
+
+```bash
+# Combined render + deposit (no flags = use settings/env)
+python manage.py zenodo_deposit
+# Just render the files into data/ (no API call)
+python manage.py render_zenodo
+# Just upload to (or bootstrap) the draft
+python manage.py deposit_zenodo
+# Pin a specific draft (skips the resolver/bootstrap)
+python manage.py deposit_zenodo --deposition-id 123456
+```
+
+The combined command is also available as an **admin action** on any of the work-list admin pages: *Trigger Zenodo Deposition*.
+
+**Schedule annual auto-deposit:**
+
+```bash
+python manage.py schedule_zenodo_deposit
+# Idempotent — registers works.tasks.run_zenodo_deposition for Dec 31 23:59 yearly
+```
+
+The scheduled task chains `regenerate_all_data_dumps → render_zenodo_package → deposit_to_zenodo`, so the deposit always reflects the latest data dumps. Re-running the command is a no-op when the schedule already exists.
+
+**Lifecycle the deposit code handles automatically:**
+
+1. **First run, nothing configured** → POSTs to `/deposit/depositions`, gets a fresh draft ID, logs it, uploads files.
+2. **Subsequent runs against the same draft** → reuses the latest log row's ID, deletes inherited files, re-uploads, re-PUTs metadata.
+3. **Run after admin has manually published the draft** → detects `submitted=true` + `state="done"`, calls `POST .../actions/newversion`, switches to the new draft from `links.latest_draft`, then proceeds as in (2).
+4. **Grants metadata rejected** (Zenodo's curated vocabulary doesn't list OPTIMETA/KOMET yet) → retries once without `grants` and appends a free-text funding statement to `metadata.notes`. Logged in the `notes` field of the log row.
+
+**Inspect a deposition:** `/admin/works/zenododepositionlog/` — status, file list with sizes, merged metadata diff, upload duration, error traceback when it failed, and a direct link to the Zenodo draft. The `/data/` page on the public site shows the latest *successful* deposition (sandbox-only when `DEBUG=True`, production-only otherwise).
+
 ### Manage data dumps and caches
 
 #### Data dump cache

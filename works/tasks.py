@@ -486,3 +486,22 @@ def regenerate_all_data_dumps():
     csv_path = convert_geojson_to_csv(geojson_path)
     cleanup_old_data_dumps(cache_dir, settings.DATA_DUMP_RETENTION)
     return {"geojson": geojson_path, "gpkg": gpkg_path, "csv": csv_path}
+
+
+# -----------------------------------------------------------------------------
+# Zenodo deposition.
+# -----------------------------------------------------------------------------
+
+def run_zenodo_deposition():
+    """Run the full Zenodo deposition cycle: regenerate dumps → render
+    README/zip/metadata → upload to (or bootstrap) a Zenodo draft.
+
+    Used as the scheduled Django-Q task (annual, last day of the year via
+    ``schedule_zenodo_deposit``). Publishing remains manual — admins receive
+    an email with the draft link.
+    """
+    from works.zenodo import deposit_to_zenodo, render_zenodo_package
+
+    regenerate_all_data_dumps()
+    render_zenodo_package()
+    return deposit_to_zenodo()

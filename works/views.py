@@ -281,6 +281,24 @@ def data(request):
     else:
         last_updated = None
 
+    # Get latest Zenodo deposition info
+    # In DEBUG mode, show sandbox depositions; in production, show only production depositions
+    from works.models import ZenodoDepositionLog
+
+    if settings.DEBUG:
+        # Debug mode: show sandbox depositions
+        latest_zenodo = ZenodoDepositionLog.objects.filter(
+            status='success',
+            api_base__icontains='sandbox.zenodo.org'
+        ).order_by('-deposition_date').first()
+    else:
+        # Production mode: show only production depositions (exclude sandbox)
+        latest_zenodo = ZenodoDepositionLog.objects.filter(
+            status='success'
+        ).exclude(
+            api_base__icontains='sandbox.zenodo.org'
+        ).order_by('-deposition_date').first()
+
     return render(request, 'data.html', {
         'geojson_size':    geojson_size,
         'geopackage_size': geopackage_size,
@@ -288,6 +306,7 @@ def data(request):
         'last_updated':    last_updated,
         'last_geojson':    last_geo.name  if last_geo else None,
         'last_gpkg':       last_gpkg.name if last_gpkg else None,
+        'latest_zenodo':   latest_zenodo,
     })
 
 def confirmation_login(request):

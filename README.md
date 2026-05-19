@@ -654,6 +654,158 @@ The app is deployed in the TUD Enterprise Cloud at <https://optimap.geo.tu-dresd
 
 Day-to-day operation of a running OPTIMAP — managing harvesting sources and events, curating collections, blocking abusive users, running the Django-Q cluster, and the rest of the Django-admin surface — is documented in the operator handbook at **[docs/manage.md](docs/manage.md)**.
 
+### Zenodo Data Archival
+
+OPTIMAP can automatically archive datasets to Zenodo for long-term preservation and citability.
+
+#### Initial Setup
+
+Before running depositions, you must create a **draft deposition** on Zenodo with a **reserved DOI**:
+
+1. **Create a Zenodo Account**
+   - Register at [Zenodo Sandbox](https://sandbox.zenodo.org/) (for testing) or [Zenodo Production](https://zenodo.org/)
+
+2. **Generate API Token**
+   - Go to Account Settings → Applications → Personal access tokens
+   - Create a new token with `deposit:write` and `deposit:actions` scopes
+   - Save the token securely
+
+3. **Create Draft Deposition with Reserved DOI**
+   - Go to "New upload" on Zenodo
+   - **Important:** Click "Reserve DOI" button to get a DOI assigned before publishing
+   - Fill in minimal required metadata (title, creators, upload type)
+   - **Do NOT publish** - keep it as a draft
+   - Files and metadata will be overwritten on the first deposition
+   - Note the deposition ID from the URL (e.g., `https://zenodo.org/deposit/123456`)
+
+4. **Configure Environment Variables**
+
+   Add to your `.env` file:
+
+   ```bash
+   # For testing (sandbox)
+   ZENODO_API_BASE=https://sandbox.zenodo.org/api
+   ZENODO_API_TOKEN=your_sandbox_token_here
+   ZENODO_SANDBOX_DEPOSITION_ID=123456
+
+   # For production
+   ZENODO_API_BASE=https://zenodo.org/api
+   ZENODO_API_TOKEN=your_production_token_here
+   ZENODO_SANDBOX_DEPOSITION_ID=123456  # Use the same setting name
+   ```
+
+   Or set in `optimap/settings.py`:
+
+   ```python
+   ZENODO_API_BASE = "https://sandbox.zenodo.org/api"
+   ZENODO_API_TOKEN = "your_token_here"
+   ZENODO_SANDBOX_DEPOSITION_ID = "123456"
+   ```
+
+#### Running a Deposition
+
+**Manual deposition (recommended):**
+
+```bash
+# Full deposition cycle (render + upload)
+python manage.py zenodo_deposit
+
+# Skip render if files already exist
+python manage.py zenodo_deposit --skip-render
+
+# Use custom deposition ID
+python manage.py zenodo_deposit --deposition-id 789012
+```
+
+**Individual steps:**
+
+```bash
+# Step 1: Generate data files and metadata
+python manage.py render_zenodo
+
+# Step 2: Upload to Zenodo
+python manage.py deposit_zenodo
+```
+
+#### What Gets Uploaded
+
+Each deposition includes:
+
+- **README.md** - Human-readable dataset description with statistics
+- **optimap-main.zip** - Complete source code snapshot
+- **optimap_data_dump_YYYYMMDD.geojson** - All publication data as GeoJSON
+- **optimap_data_dump_YYYYMMDD.gpkg** - All publication data as GeoPackage
+
+**Metadata Management:**
+
+The following fields are **automatically preserved** from the existing Zenodo deposition and never overwritten:
+
+- `doi` - **Reserved DOI** (never modified - must remain constant across versions)
+- `prereserve_doi` - Pre-reserved DOI information
+
+All other metadata fields are **updated from the rendered data** on each deposition:
+
+- `title` - Deposition title (default: "OPTIMAP FAIR Data Package")
+- `upload_type` - Resource type (default: "dataset")
+- `publication_date` - Set to current date
+- `creators` - Authors/contributors (default: "OPTIMAP Contributors")
+- `description` - Generated from README.md
+- `version` - Auto-incremented version number
+- `keywords` - Default: ["Open Access", "Open Science", "ORI", "Open Data", "FAIR"]
+- `related_identifiers` - Links to related resources
+
+**File Management:**
+
+All existing files are **deleted** from the deposition before uploading new files. This ensures:
+
+- No accumulation of old versions of files
+- Clean replacement of all content
+- Consistent file sets across versions
+
+#### After Deposition
+
+1. **Review the Draft**
+   - Check files and metadata at the Zenodo URL (provided in command output)
+   - Admin users will receive an email notification with the deposition link
+
+2. **Publish When Ready**
+   - Publishing **cannot be undone**
+   - Published records are permanently archived and receive a DOI
+   - New versions can be created for updates
+
+#### Monitoring
+
+- View deposition history in Django Admin: `/admin/works/zenododepositionlog/`
+- Check the `/data` page for the latest successful deposition
+  - In **DEBUG mode** (`OPTIMAP_DEBUG=True`): Shows latest sandbox deposition
+  - In **production mode**: Shows only production depositions (sandbox excluded)
+- All depositions are logged with status, files, errors, and timing information
+
+#### Troubleshooting
+
+**"No deposition ID" error:**
+
+- Set `ZENODO_SANDBOX_DEPOSITION_ID` in environment or use `--deposition-id` flag
+
+**"401 Unauthorized" or "403 Permission Denied" error:**
+
+- Check that `ZENODO_API_TOKEN` is set correctly (no extra whitespace)
+- Verify token has `deposit:write` and `deposit:actions` scopes
+- Ensure the token is for the correct Zenodo instance (sandbox vs production)
+- Verify the deposition was created with the same account as the token
+- Token must have access to the specific deposition ID
+
+**"404 Not Found" error:**
+
+- Verify deposition ID exists and is a draft (not published)
+- Check that `ZENODO_API_BASE` matches where the deposition was created
+- Ensure you're using the correct deposition ID (not record ID)
+
+**Files not uploading:**
+
+- Run `python manage.py render_zenodo` first to generate files
+- Check that `data/` directory exists and contains files
+
 ## License
 
 This software is published under the GNU General Public License v3.0 (see file [`LICENSE`](LICENSE)).

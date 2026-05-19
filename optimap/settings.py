@@ -349,6 +349,11 @@ DATA_DUMP_INTERVAL_HOURS = 6
 # Contact email for API user agents (OpenAlex, Wikidata, etc.)
 CONTACT_EMAIL = "login@optimap.science"
 
+# Zenodo configuration
+ZENODO_API_TOKEN = env("ZENODO_API_TOKEN", default=None)
+ZENODO_SANDBOX_DEPOSITION_ID = env("ZENODO_SANDBOX_DEPOSITION_ID", default=None)
+ZENODO_API_BASE = env("ZENODO_API_BASE", default="https://sandbox.zenodo.org/api")
+
 # Wikibase/Wikidata configuration
 WIKIBASE_API_URL = env("WIKIBASE_API_URL", default="")
 
