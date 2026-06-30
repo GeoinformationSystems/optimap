@@ -1,0 +1,26 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{# Override of DRF's previous_and_next.html for Bootstrap 4: the .pager class was #}
+{# removed in BS4, so use .pagination with .page-item / .page-link for spacing. #}
+<ul class="pagination" style="margin: 5px 0 10px 0">
+  {% if previous_url %}
+    <li class="page-item">
+      <a class="page-link" href="{{ previous_url }}">&laquo; Previous</a>
+    </li>
+  {% else %}
+    <li class="page-item disabled">
+      <a class="page-link" href="#">&laquo; Previous</a>
+    </li>
+  {% endif %}
+
+  {% if next_url %}
+    <li class="page-item">
+      <a class="page-link" href="{{ next_url }}">Next &raquo;</a>
+    </li>
+  {% else %}
+    <li class="page-item disabled">
+      <a class="page-link" href="#">Next &raquo;</a>
+    </li>
+  {% endif %}
+</ul>

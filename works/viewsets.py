@@ -927,7 +927,7 @@ class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     ),
 )
 class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
-    """Identity-bearing authors linked to published works (issue #29, /by/ facet)."""
+    """Authors with an ORCID iD who have at least one published work in OPTIMAP."""
 
     serializer_class = AuthorSerializer
     permission_classes = [AllowAny]

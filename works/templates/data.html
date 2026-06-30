@@ -7,7 +7,7 @@
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-md-6 py-5">
+  <div class="col-12 col-md-6 py-5">
 
     <h1 class="mb-4">OPTIMAP Data &amp; API Access</h1>
     <p class="lead">
@@ -53,25 +53,21 @@
 
     <h2 class="py-2">API Endpoint</h2>
     <p>
-      The API endpoint is <b>{{ site|addstr:"/api"|urlize }}</b>. Visit in your browser for
+      The API endpoint is <b class="text-break">{{ site|addstr:"/api"|urlize }}</b>. Visit in your browser for
       an interactive interface.
     </p>
 
-    <p>
-      Query all works via:
-      <pre class="bg-light p-2">
-curl -X GET {{ site|addstr:"/api" }}/api/optimap/ | jq
-      </pre>
-    </p>
+    <p>Query all works via:</p>
+    <pre class="bg-light p-2" style="white-space: pre-wrap; word-break: break-word;">curl -X GET {{ site|addstr:"/api" }}/api/optimap/ | jq</pre>
 
     <h2 class="py-2">OpenAPI Schema</h2>
     <p>
-      Download the OpenAPI spec at <b>{{ site|addstr:"/api/schema"|urlize }}</b>.
+      Download the OpenAPI spec at <b class="text-break">{{ site|addstr:"/api/schema"|urlize }}</b>.
     </p>
 
     <h2 class="py-2">OpenAPI UI</h2>
     <p>
-      Explore interactively at <b>{{ site|addstr:"/api/schema/ui"|urlize }}</b>.
+      Explore interactively at <b class="text-break">{{ site|addstr:"/api/schema/ui"|urlize }}</b>.
     </p>
 
     <hr>
