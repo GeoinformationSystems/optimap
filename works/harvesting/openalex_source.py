@@ -28,6 +28,7 @@ from django.contrib.gis.geos import GeometryCollection
 from django.utils import timezone
 
 from works.models import Source
+from works.openalex_matcher import author_records_from_authorships
 
 from .common import (
     HarvestStats,
@@ -42,6 +43,7 @@ from .common import (
     send_harvest_email,
     start_harvesting_event,
 )
+from .openalex import link_openalex_authors
 from .openalex_locations import build_locations
 from .sessions import (
     OPENALEX_API_URL,
@@ -224,6 +226,7 @@ def _openalex_item_to_work_kwargs(item, source, event):
         "openalex_is_retracted": bool(item.get("is_retracted", False)),
         "openalex_open_access_status": open_access.get("oa_status"),
         "locations": build_locations(item),
+        "author_records": author_records_from_authorships(item.get("authorships")),
         "provenance": {
             "harvest": {
                 "harvester": "harvest_openalex_source",
@@ -301,6 +304,7 @@ def parse_openalex_response_and_save_works(
             kwargs = _openalex_item_to_work_kwargs(item, source, event)
             if not kwargs:
                 continue
+            author_records = kwargs.pop("author_records", [])
             try:
                 work, action = _save_or_update_work(
                     kwargs,
@@ -309,8 +313,10 @@ def parse_openalex_response_and_save_works(
                     update_existing=update_existing,
                 )
                 stats.record(action)
-                if action in ("created", "updated") and source and source.collection_id:
-                    work.collections.add(source.collection_id)
+                if action in ("created", "updated"):
+                    link_openalex_authors(work, {"author_records": author_records})
+                    if source and source.collection_id:
+                        work.collections.add(source.collection_id)
                 if action == "created":
                     saved += 1
             except Exception as e:

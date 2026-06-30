@@ -1,6 +1,7 @@
 {# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
 {# SPDX-License-Identifier: GPL-3.0-or-later #}
 {# Reusable work card for list-only facet/source landing pages (#29, #253). #}
+{% load optimap_extras %}
 <div class="card locate-card">
   <div class="card-body">
     <h5 class="card-title">
@@ -30,6 +31,9 @@
             <a href="{% url 'optimap:in-source' work.source.slug %}">{{ work.source.name }}</a>
           {% else %}{{ work.source.name }}{% endif %}
         </div>
+      {% endif %}
+      {% if work.authors %}
+        <div class="mb-1"><i class="fas fa-users"></i> {% work_author_list work %}</div>
       {% endif %}
       {% if work.doi %}
         <div class="mb-1"><i class="fas fa-fingerprint"></i> DOI: <span class="doi-text">{{ work.doi }}</span></div>

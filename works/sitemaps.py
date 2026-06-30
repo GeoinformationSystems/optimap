@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from django.contrib.sitemaps import Sitemap
+from django.db.models import Count, Q
 from django.urls import reverse
 
-from .models import GlobalRegion, Work
+from .models import Author, GlobalRegion, Work
 
 
 class WorksSitemap(Sitemap):  # based on django.contrib.sitemaps.GenericSitemap
@@ -67,3 +68,24 @@ class FeedsSitemap(Sitemap):
     def lastmod(self, obj):
         """Return the last modification date."""
         return obj.last_loaded
+
+
+class AuthorSitemap(Sitemap):
+    """Sitemap for /by/<orcid>/ author facet pages (issue #29)."""
+
+    priority = 0.5
+    changefreq = "weekly"
+
+    def items(self):
+        return (
+            Author.objects.filter(orcid__isnull=False)
+            .annotate(_work_count=Count("works", filter=Q(works__status="p")))
+            .filter(_work_count__gt=0)
+            .order_by("name")
+        )
+
+    def location(self, obj):
+        return reverse("optimap:by-author", kwargs={"orcid": obj.orcid})
+
+    def lastmod(self, obj):
+        return obj.last_seen

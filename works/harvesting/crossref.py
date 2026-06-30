@@ -48,7 +48,7 @@ from .common import (
 )
 from .metadata_html import extract_geometry_from_html, extract_timeperiod_from_html
 from .openaire import enrich_work_from_openaire
-from .openalex import build_openalex_fields
+from .openalex import build_openalex_fields, link_openalex_authors
 from .sessions import (
     CROSSREF_API_URL,
     CROSSREF_HTTP_TIMEOUT,
@@ -517,8 +517,10 @@ def parse_crossref_response_and_save_works(
                     update_existing=update_existing,
                 )
                 stats.record(action)
-                if action in ("created", "updated") and source and source.collection_id:
-                    work.collections.add(source.collection_id)
+                if action in ("created", "updated"):
+                    link_openalex_authors(work, kwargs)
+                    if source and source.collection_id:
+                        work.collections.add(source.collection_id)
                 if action == "created":
                     saved += 1
                     _try_bok_pdf_extraction(work, kwargs.get("doi", ""), session)
@@ -957,6 +959,7 @@ def harvest_crossref_doi(doi, user=None, source_id=None):
             event.save(update_fields=["status", "completed_at"])
             return work, "exists"
 
+        link_openalex_authors(work, kwargs)
         if source.collection_id:
             work.collections.add(source.collection_id)
         _try_bok_pdf_extraction(work, kwargs.get("doi", ""), session)

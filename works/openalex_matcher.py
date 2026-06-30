@@ -17,12 +17,30 @@ from urllib.parse import quote
 import requests
 
 from works.harvesting.sessions import _openalex_session
+from works.utils.orcid import normalize_orcid
 
 logger = logging.getLogger(__name__)
 
 OPENALEX_API_BASE = "https://api.openalex.org"
 REQUEST_DELAY = 0.1  # 100ms between requests
 _VERSIONED_DOI_RE = re.compile(r"^(.+)/v(\d+)$", re.IGNORECASE)
+
+
+def author_records_from_authorships(authorships) -> list:
+    """Extract structured author records (name, ORCID, openalex_id, rank) from an
+    OpenAlex ``authorships`` array. Returns only records with at least one identifier."""
+    records = []
+    for i, authorship in enumerate(authorships or []):
+        author = authorship.get("author") or {}
+        name = (author.get("display_name") or "").strip()
+        orcid = normalize_orcid(author.get("orcid"))
+        openalex_id = (author.get("id") or "").strip() or None
+        # Strip full URL prefix from OpenAlex author id.
+        if openalex_id and openalex_id.startswith("https://openalex.org/"):
+            openalex_id = openalex_id[len("https://openalex.org/") :]
+        if orcid or openalex_id:
+            records.append({"name": name, "orcid": orcid, "openalex_id": openalex_id, "rank": i})
+    return records
 
 
 class OpenAlexMatcher:
@@ -278,7 +296,7 @@ class OpenAlexMatcher:
                 if v not in (None, ""):
                     extracted[k] = str(v)[:64]
 
-        # Extract authors (display_name from authorships)
+        # Extract authors (display_name from authorships) and structured records with ORCIDs.
         authorships = work_data.get("authorships", [])
         if authorships:
             authors = []
@@ -287,6 +305,7 @@ class OpenAlexMatcher:
                 if author and author.get("display_name"):
                     authors.append(author.get("display_name"))
             extracted["authors"] = authors
+        extracted["author_records"] = author_records_from_authorships(authorships)
 
         # Extract keywords (display_name only)
         keywords = work_data.get("keywords", [])

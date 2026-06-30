@@ -123,6 +123,8 @@ coverage html  # generates htmlcov/
 
 Run a single module/test with `python manage.py test tests.test_geoextent` (or `…test tests-ui`); add `-Wa` to surface deprecation warnings.
 
+**Run at most one test-execution shell at a time.** Never launch a second `manage.py test` (foreground or background) while one is still running — wait for it to finish, check its result, then run the next one. Concurrent test runs against the same `--keepdb` database race and produce unreliable failures, and stacking background shells makes it hard for the user to see what's actually happening or abort cleanly.
+
 #### `online`-tagged tests (network required)
 
 Tests decorated with `@tag('online')` make real HTTP requests to external

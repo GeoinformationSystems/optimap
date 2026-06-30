@@ -216,3 +216,19 @@ def render_provenance(provenance):
     if not sections:
         return ""
     return mark_safe('<div class="provenance-rendered">' + "".join(sections) + "</div>")
+
+
+@register.inclusion_tag("partials/author_list.html")
+def work_author_list(work):
+    """Render the author list with ORCID iD links for a Work object.
+
+    Usage in templates: {% work_author_list work %}
+    Calls authors_for_display() which aligns Work.authors (display names) with
+    Author rows via WorkAuthor rank; falls back to an empty list on any error.
+    """
+    try:
+        from works.services.authors import authors_for_display
+
+        return {"authors_display": authors_for_display(work)}
+    except Exception:
+        return {"authors_display": []}

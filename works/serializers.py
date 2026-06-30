@@ -15,7 +15,7 @@ from rest_framework_gis.fields import GeoJsonDict
 from rest_framework_gis.fields import GeometryField as _BaseGeometryField
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 
-from .models import Collection, Country, GlobalRegion, Source, Subscription, Work
+from .models import Author, Collection, Country, GlobalRegion, Source, Subscription, Work
 from .utils.geometry import COORDINATE_PRECISION, round_geojson_coordinates
 
 User = get_user_model()
@@ -188,6 +188,36 @@ class SourceSerializer(serializers.ModelSerializer):
         return snap.as_summary() if snap is not None else None
 
 
+class AuthorSerializer(serializers.ModelSerializer):
+    """Serializer for :class:`works.models.Author` — ORCID-keyed author identity."""
+
+    url = serializers.SerializerMethodField(
+        help_text="OPTIMAP /by/<orcid>/ permalink for this author (null when orcid is missing)."
+    )
+    work_count = serializers.SerializerMethodField(
+        help_text="Number of published works associated with this author on OPTIMAP."
+    )
+
+    class Meta:
+        model = Author
+        fields = ["id", "orcid", "openalex_id", "name", "url", "work_count"]
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_url(self, obj):
+        if obj.orcid:
+            from django.urls import reverse
+
+            return reverse("optimap:by-author", kwargs={"orcid": obj.orcid})
+        return None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_work_count(self, obj):
+        # Annotated by the viewset queryset; fall back to a live count.
+        if hasattr(obj, "_work_count"):
+            return obj._work_count
+        return obj.works.filter(status="p").count()
+
+
 class WorkSerializer(GeoFeatureModelSerializer):
     geometry = PrecomputedGeometryField()
     source_details = serializers.SerializerMethodField(
@@ -204,6 +234,11 @@ class WorkSerializer(GeoFeatureModelSerializer):
     region_names = serializers.SerializerMethodField(
         help_text="Names of the global regions (continents and oceans) the geometry "
         "intersects (offline point-in-polygon join; multi-valued)."
+    )
+    author_orcids = serializers.SerializerMethodField(
+        help_text="Identity-bearing authors of this work with their ORCID iDs and OPTIMAP "
+        "permalink URLs. Authors without an ORCID are omitted here (their display names are "
+        "still in the `authors` field). Ordered by authorship rank."
     )
 
     class Meta:
@@ -227,6 +262,7 @@ class WorkSerializer(GeoFeatureModelSerializer):
             "status",
             "status_display",
             "authors",
+            "author_orcids",
             "keywords",
             "topics",
             "bok_concepts",
@@ -273,6 +309,37 @@ class WorkSerializer(GeoFeatureModelSerializer):
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_region_names(self, obj):
         return obj.region_names
+
+    @extend_schema_field(
+        serializers.ListField(
+            child=inline_serializer(
+                "AuthorOrcidEntry",
+                fields={
+                    "name": drf_serializers.CharField(),
+                    "orcid": drf_serializers.CharField(),
+                    "url": drf_serializers.URLField(),
+                },
+            )
+        )
+    )
+    def get_author_orcids(self, obj):
+        from django.urls import reverse
+
+        try:
+            wa_qs = obj.work_authors.select_related("author").order_by("rank")
+            return [
+                {
+                    "name": wa.author.name,
+                    "orcid": wa.author.orcid,
+                    "url": reverse("optimap:by-author", kwargs={"orcid": wa.author.orcid})
+                    if wa.author.orcid
+                    else None,
+                }
+                for wa in wa_qs
+                if wa.author.orcid
+            ]
+        except Exception:
+            return []
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_bok_concepts_resolved(self, obj):

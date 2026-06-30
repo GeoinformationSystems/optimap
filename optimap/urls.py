@@ -24,6 +24,7 @@ from django.urls import include, path, re_path
 from django.views.decorators.cache import cache_page
 
 from optimap.sitemaps import (
+    AuthorSitemap,
     CollectionDownloadsSitemap,
     CollectionFeedsSitemap,
     CollectionsSitemap,
@@ -48,6 +49,7 @@ sitemaps = {
     "countries": CountrySitemap,
     "years": YearSitemap,
     "topics": TopicSitemap,
+    "authors": AuthorSitemap,
     "sources-index": SourceIndexSitemap,
     "source-feeds": SourceFeedsSitemap,
 }

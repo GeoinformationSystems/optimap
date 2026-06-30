@@ -602,6 +602,7 @@ Staff users additionally see the full provenance (including `original_record`, W
   },
   "metadata_sources": {                    // per-field attribution
     "authors": "openalex",
+    "author_orcids": "openalex",           // openalex | openaire — source that wrote Author M2M links
     "abstract": "openaire",                // crossref | openaire
     "publisher": "openaire",               // volume/issue/first_page/last_page/language/publisher: openalex | openaire
     "geometry": "DC.SpatialCoverage",      // … | reharvest_html (admin re-harvest)
@@ -679,6 +680,8 @@ Staff users additionally see the full provenance (including `original_record`, W
     },
     { "type": "country_curation", "at": "...", "user_id": 1, "decision": "assigned", "iso_codes": ["DE", "PL"] }, // staff /countries curation (multi-valued); decision "excluded" for "will not be matched"
     { "type": "region_curation", "at": "...", "user_id": 1, "decision": "assigned", "region": "Asia", "regions": ["Asia", "Indian Ocean"] }, // staff /regions curation; "region" set only for the single-region path; decision "excluded" for "will not be matched"
+    { "type": "author_link", "at": "...", "source": "openalex", "linked": 3, "orcids": ["0000-0002-1825-0097"] }, // Author ORCID iDs were linked to the Work.author_links M2M
+    { "type": "geometry_repair", "at": "...", "method": "make_valid" }, // an invalid stored geometry was repaired with GEOS make_valid (ST_MakeValid) on save
   ],
 }
 ```
@@ -841,6 +844,44 @@ excluded with zero regions — stays resolved. **A manual decision is preserved
 across unrelated saves but voided when the work's geometry changes**, after which
 the work re-runs automated matching. To undo a decision outside this UI, clear
 the work's `provenance.regions` block in the Django admin.
+
+## Author ORCID enrichment
+
+ORCIDs are captured automatically when works are enriched:
+
+- **OpenAlex** — every harvested work already triggers OpenAlex enrichment (inline in harvesters, or via the post-harvest sweep). The `authorships` array in the OpenAlex response now includes `author.orcid` and `author.id`; these are saved to the `Author` model and linked via the `WorkAuthor` through-table.
+- **OpenAIRE** — the `enrich_openaire` sweep parses the `pid` list on each author record for ORCIDs (scheme `"orcid"`).
+
+Both paths use **fill-if-empty**: if a work already has `Work.author_links`, a second enrichment source does not overwrite them (pass `force=True` on the backfill command to rebuild).
+
+### Backfill existing works
+
+```bash
+python manage.py backfill_author_orcids --limit 500 --dry-run   # preview
+python manage.py backfill_author_orcids --limit 500              # link via OpenAlex (default)
+python manage.py backfill_author_orcids --source openaire        # link via OpenAIRE
+python manage.py backfill_author_orcids --force                  # rebuild even if links exist
+```
+
+`--source` accepts `openalex` (default; re-fetches `authorships` from the OpenAlex works API by `openalex_id`) or `openaire` (re-uses the stored OpenAIRE record via `fetch_openaire_record`). Only works that have the matching external id are processed. `--throttle` (default 0.1 s) controls the per-work delay.
+
+Every link written is recorded in `Work.provenance.metadata_sources["author_orcids"]` and an `author_link` event (see [Work provenance](#work-provenance)).
+
+### Authors API
+
+`GET /api/v1/authors/` — paginated list of ORCID-bearing authors with ≥1 published work.
+`GET /api/v1/authors/<orcid>/` — retrieve a single author by bare ORCID iD (e.g. `0000-0002-1825-0097`).
+`GET /api/v1/works/?author_orcid=<orcid>` — filter works by author ORCID.
+
+Each work serialization now includes `author_orcids`: a list of `{name, orcid, url}` entries in author-rank order (only ORCID-bearing entries have `orcid` and `url`; entries without an ORCID have `null` for both).
+
+### People pages
+
+`/by/<orcid>/` — published works by this author.
+`/by/` — paginated index of all ORCID-bearing authors with published works.
+`/browse/` — links to `/by/` under the new "People" section.
+
+The ORCID iD icon (`works/static/img/orcid-id-icon-16.png`) links to `https://orcid.org/<orcid>` (new tab); the author name links to their `/by/<orcid>/` page. Authors without an ORCID are rendered as plain text with no links.
 
 ## Block emails and domains (anti-spam)
 

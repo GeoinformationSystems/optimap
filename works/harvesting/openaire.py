@@ -42,6 +42,7 @@ from works.harvesting.sessions import (
     _openaire_session,
 )
 from works.models import HarvestingEvent, Work
+from works.utils.orcid import normalize_orcid
 from works.utils.provenance import append_event
 
 logger = logging.getLogger(__name__)
@@ -264,6 +265,30 @@ def build_openaire_fields(record):
     return candidates
 
 
+def _author_records_from_openaire(record) -> list:
+    """Extract structured author records with ORCID from an OpenAIRE result record.
+
+    OpenAIRE author objects may include a ``pid`` list with scheme/value pairs, e.g.
+    ``[{"scheme": "orcid", "value": "0000-0002-1825-0097"}]``. Returns records
+    suitable for :func:`works.services.authors.link_work_authors`, skipping authors
+    with no identifier.
+    """
+    records = []
+    for i, author in enumerate(record.get("authors") or []):
+        if not isinstance(author, dict):
+            continue
+        name = (author.get("fullName") or "").strip()
+        orcid = None
+        for pid in author.get("pid") or []:
+            if isinstance(pid, dict) and (pid.get("scheme") or "").lower() == "orcid":
+                orcid = normalize_orcid(pid.get("value"))
+                if orcid:
+                    break
+        if orcid:
+            records.append({"name": name, "orcid": orcid, "openalex_id": None, "rank": i})
+    return records
+
+
 def enrich_work_from_openaire(work, *, session=None, save=True):
     """Enrich a single Work from OpenAIRE (fill-if-empty). Returns True if changed.
 
@@ -287,6 +312,16 @@ def enrich_work_from_openaire(work, *, session=None, save=True):
     openaire_id = record.get("id")
     candidates = build_openaire_fields(record)
     filled, offered = apply_enrichment(work, candidates, "openaire")
+
+    # Best-effort: link author ORCIDs extracted from OpenAIRE pid fields.
+    try:
+        author_records = _author_records_from_openaire(record)
+        if author_records:
+            from works.services.authors import link_work_authors
+
+            link_work_authors(work, author_records, source="openaire")
+    except Exception as exc:
+        logger.debug("OpenAIRE author ORCID linking failed for work %s: %s", work.id, exc)
 
     provenance = work.provenance if isinstance(work.provenance, dict) else {}
     provenance["openaire_match"] = {

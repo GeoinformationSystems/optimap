@@ -27,7 +27,7 @@ from .common import (
     send_harvest_email,
     start_harvesting_event,
 )
-from .openalex import build_openalex_fields
+from .openalex import build_openalex_fields, link_openalex_authors
 
 logger = logging.getLogger(__name__)
 DOI_REGEX = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
@@ -205,8 +205,10 @@ def parse_rss_feed_and_save_publications(
                     update_existing=update_existing,
                 )
                 stats.record(action)
-                if action in ("created", "updated") and source and source.collection_id:
-                    work.collections.add(source.collection_id)
+                if action in ("created", "updated"):
+                    link_openalex_authors(work, openalex_fields)
+                    if source and source.collection_id:
+                        work.collections.add(source.collection_id)
                 if action == "created":
                     saved_count += 1
                     logger.debug("Saved work: %s", title[:50])

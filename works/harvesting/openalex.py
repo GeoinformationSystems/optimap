@@ -128,3 +128,19 @@ def build_openalex_fields(title, doi=None, author=None, existing_metadata=None):
             metadata_provenance["keywords"] = "original_source"
 
     return openalex_fields, metadata_provenance
+
+
+def link_openalex_authors(work, openalex_fields, *, force: bool = False) -> int:
+    """Link author identifiers from ``openalex_fields`` (as returned by
+    :func:`build_openalex_fields`) to ``work`` via the WorkAuthor through-table.
+
+    Must be called **after** the Work has been saved (relational M2M).
+    Returns the number of WorkAuthor rows created (0 if nothing to link or
+    fill-if-empty policy skips).
+    """
+    records = openalex_fields.get("author_records") or []
+    if not records:
+        return 0
+    from works.services.authors import link_work_authors
+
+    return link_work_authors(work, records, source="openalex", force=force)

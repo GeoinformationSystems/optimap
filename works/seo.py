@@ -76,6 +76,36 @@ def _normalize_author_list(work) -> list[str]:
     return out
 
 
+def _author_records_for_schema(work) -> list[dict]:
+    """Return ``[{"name": str, "orcid": str | None}, …]`` for schema.org output.
+
+    Prefers ``WorkAuthor`` rows (names + ORCIDs from enrichment) when they
+    cover at least as many authors as the display cache, matching the logic in
+    ``authors_for_display``. Falls back to ``_normalize_author_list`` plain
+    names when no identity rows exist.
+    """
+    try:
+        wa_qs = work.work_authors.select_related("author").order_by("rank")
+        ranked = [(wa.author.name, wa.author.orcid) for wa in wa_qs]
+    except Exception:
+        ranked = []
+
+    plain_names = _normalize_author_list(work)
+
+    if ranked and len(ranked) >= len(plain_names):
+        return [{"name": name, "orcid": orcid} for name, orcid in ranked]
+
+    if ranked:
+        orcid_by_index = {i: orcid for i, (_, orcid) in enumerate(ranked) if orcid}
+        name_map = {name.lower(): orcid for name, orcid in ranked if orcid}
+        return [
+            {"name": name, "orcid": orcid_by_index.get(i) or name_map.get(name.lower())}
+            for i, name in enumerate(plain_names)
+        ]
+
+    return [{"name": name, "orcid": None} for name in plain_names]
+
+
 def build_schema_org_for_work(work, request) -> dict:
     """Just the schema.org ``ScholarlyArticle`` JSON-LD dict — the heavy
     part of ``build_work_meta``. Pulled out so callers (e.g. the
@@ -96,8 +126,8 @@ def build_schema_org_for_work(work, request) -> dict:
         keywords.extend(k for k in work.keywords if k)
     if work.topics:
         keywords.extend(t for t in work.topics if t)
-    authors = _normalize_author_list(work)
-    return _build_schema_org(work, request, canonical, image, authors, keywords, description)
+    author_records = _author_records_for_schema(work)
+    return _build_schema_org(work, request, canonical, image, author_records, keywords, description)
 
 
 def build_work_meta(request, work, *, kwargs_schema: dict | None = None) -> Meta:
@@ -128,7 +158,7 @@ def build_work_meta(request, work, *, kwargs_schema: dict | None = None) -> Meta
     if work.topics:
         keywords.extend(t for t in work.topics if t)
 
-    authors = _normalize_author_list(work)
+    author_records = _author_records_for_schema(work)
 
     # ``schema`` is the heavy bit (PostGIS roundtrip for the geojson dump
     # plus nested dict construction). Callers may pass in a precomputed
@@ -137,7 +167,7 @@ def build_work_meta(request, work, *, kwargs_schema: dict | None = None) -> Meta
     schema = (
         kwargs_schema
         if kwargs_schema is not None
-        else _build_schema_org(work, request, canonical, image, authors, keywords, description)
+        else _build_schema_org(work, request, canonical, image, author_records, keywords, description)
     )
 
     meta = Meta(
@@ -165,8 +195,8 @@ def build_work_meta(request, work, *, kwargs_schema: dict | None = None) -> Meta
     ]
     if work.publicationDate:
         extra.append(("property", "article:published_time", work.publicationDate.isoformat()))
-    for author in authors:
-        extra.append(("property", "article:author", author))
+    for rec in author_records:
+        extra.append(("property", "article:author", rec["name"]))
     if work.source and getattr(work.source, "name", None):
         extra.append(("property", "article:section", str(work.source.name)))
     meta.extra_props = {tag: val for _, tag, val in extra}  # property=… name=… handled below
@@ -202,10 +232,14 @@ def external_identifier_links(work) -> list[dict]:
     return links
 
 
-def _build_schema_org(work, request, canonical, image, authors, keywords, description) -> dict:
+def _build_schema_org(work, request, canonical, image, author_records, keywords, description) -> dict:
     """Schema.org ``ScholarlyArticle`` JSON-LD. Mirrors what we *consume* from
     Janeway in ``works/tasks.py`` — closing the loop: we now publish the same
-    metadata vocabulary that we read."""
+    metadata vocabulary that we read.
+
+    ``author_records`` is a list of ``{"name": str, "orcid": str | None}``
+    dicts from ``_author_records_for_schema``; ORCID-bearing authors get a
+    ``sameAs`` pointing at ``https://orcid.org/<orcid>``."""
     payload: dict = {
         "@context": "https://schema.org",
         "@type": "ScholarlyArticle",
@@ -222,8 +256,13 @@ def _build_schema_org(work, request, canonical, image, authors, keywords, descri
         payload["sameAs"] = same_as if len(same_as) > 1 else same_as[0]
     if work.publicationDate:
         payload["datePublished"] = work.publicationDate.isoformat()
-    if authors:
-        payload["author"] = [{"@type": "Person", "name": a} for a in authors]
+    if author_records:
+        def _person(rec):
+            p = {"@type": "Person", "name": rec["name"]}
+            if rec.get("orcid"):
+                p["sameAs"] = f"https://orcid.org/{rec['orcid']}"
+            return p
+        payload["author"] = [_person(r) for r in author_records]
     if keywords:
         payload["keywords"] = list(keywords)
     bok_about = _bok_defined_terms(work)

@@ -21,6 +21,7 @@ from django_q.tasks import async_task
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
@@ -35,8 +36,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework_gis import filters
 
-from .models import Collection, Country, GlobalRegion, Source, Subscription, Work
+from .models import Author, Collection, Country, GlobalRegion, Source, Subscription, Work
 from .serializers import (
+    AuthorSerializer,
     CollectionSerializer,
     ContributeDoiSerializer,
     CountrySerializer,
@@ -118,9 +120,29 @@ class SourceViewSet(viewsets.ReadOnlyModelViewSet):
             "`?in_bbox=west,south,east,north`.\n\n"
             "Pass `?minimal=true` to receive only `id`, `title`, `doi`, `status`, "
             "`status_display`, and `geometry` — the reduced payload is used by the map "
-            "for chunked loading; full details are fetched lazily per work."
+            "for chunked loading; full details are fetched lazily per work.\n\n"
+            "Pass `?author_orcid=<orcid>` to filter by a specific author's bare ORCID iD "
+            "(e.g. `0000-0002-1825-0097`). Only works linked to that author are returned."
         ),
         tags=["Works"],
+        parameters=[
+            OpenApiParameter(
+                name="author_orcid",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter to works linked to a specific author by their bare ORCID iD "
+                    "(e.g. `0000-0002-1825-0097`). Invalid or unknown ORCIDs return an empty result set."
+                ),
+                examples=[
+                    OpenApiExample(
+                        name="filter by ORCID",
+                        value="0000-0002-1825-0097",
+                    )
+                ],
+            ),
+        ],
     ),
     retrieve=extend_schema(
         summary="Retrieve a work by numeric ID",
@@ -198,7 +220,15 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                 ).order_by("_status_priority", "-creationDate", "-id")
             else:
                 qs = qs.order_by("-creationDate", "-id")
-            return annotate_rounded_geometry(qs).prefetch_related("countries", "regions")
+            qs = annotate_rounded_geometry(qs).prefetch_related("countries", "regions")
+            author_orcid_staff = qp.get("author_orcid")
+            if author_orcid_staff:
+                from works.utils.orcid import normalize_orcid
+
+                normalized = normalize_orcid(author_orcid_staff)
+                if normalized:
+                    qs = qs.filter(author_links__orcid=normalized)
+            return qs
         if getattr(self, "action", None) == "provenance" and self.request.user.is_authenticated:
             curated = Work.objects.filter(collections__curators=self.request.user)
             public = Work.objects.filter(status="p")
@@ -207,7 +237,15 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.exclude(status="r")
             return annotate_rounded_geometry(qs).prefetch_related("countries", "regions")
         public = Work.objects.filter(status="p").order_by("-creationDate", "-id").distinct()
-        return annotate_rounded_geometry(public).prefetch_related("countries", "regions")
+        qs = annotate_rounded_geometry(public).prefetch_related("countries", "regions")
+        author_orcid = qp.get("author_orcid")
+        if author_orcid:
+            from works.utils.orcid import normalize_orcid
+
+            normalized = normalize_orcid(author_orcid)
+            if normalized:
+                qs = qs.filter(author_links__orcid=normalized)
+        return qs
 
     @extend_schema(
         summary="Retrieve provenance for a work",
@@ -252,7 +290,8 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
             "| `biblio` | `crossref` (volume/issue/pages from Crossref in one batch) |\n"
             "| `openalex_metadata` | `openalex` (any OpenAlex enrichment was applied) |\n"
             "| `openalex_doi_version_fallback` | `{queried_doi, matched_doi}` dict — present when the work's versioned DOI (e.g. `/v2`) was not found in OpenAlex and enrichment succeeded via the bare DOI or an earlier version (e.g. `/v1`) |\n"
-            "| `openalex` | `primary` (work was harvested directly from OpenAlex as the primary source) |\n\n"
+            "| `openalex` | `primary` (work was harvested directly from OpenAlex as the primary source) |\n"
+            "| `author_orcids` | `openalex`, `openaire` (source that supplied the ORCID links written to the Author M2M) |\n\n"
             "**`openalex_match` keys:**\n"
             "| Key | Type | Description |\n"
             "|-----|------|-------------|\n"
@@ -306,7 +345,8 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
             "| `source_migration` | `from_source`, `to_source` | Work was reassigned to a different `Source` by the `migrate_source_works` management command |\n"
             "| `openaire_enrich` | `openaire_id`, `doi`, `source_url`, `fields_filled` (array), `fields_offered_not_applied` (array) | OpenAIRE enrichment ran; `fields_filled` were empty and were populated, `fields_offered_not_applied` had an OpenAIRE value but a value already existed (kept under the fill-if-empty policy) |\n"
             '| `country_curation` | `decision` (`assigned`/`excluded`), `iso_codes` (array, for `assigned`), `user_id`\\*, `user_email`\\* | Staff manually assigned one or more countries, or marked the work "will not be matched", on the /countries curation section |\n'
-            '| `region_curation` | `decision` (`assigned`/`excluded`), `regions` (array, for `assigned`), `region` (single-region path only), `user_id`\\*, `user_email`\\* | Staff manually assigned one or more global regions, or marked the work "will not be matched", on the /regions curation section |\n\n'
+            '| `region_curation` | `decision` (`assigned`/`excluded`), `regions` (array, for `assigned`), `region` (single-region path only), `user_id`\\*, `user_email`\\* | Staff manually assigned one or more global regions, or marked the work "will not be matched", on the /regions curation section |\n'
+            "| `author_link` | `source` (`openalex`/`openaire`), `linked` (integer — number of Author rows linked), `orcids` (array of bare ORCIDs) | Author ORCID iDs were linked to the work via the Author M2M |\n"
             "| `geometry_repair` | `method` (`make_valid`) | A topologically invalid stored geometry was repaired with GEOS `make_valid` (PostGIS `ST_MakeValid`) on save |\n\n"
             "\\* `user_id` and `user_email` are present for staff and curators only.\n\n"
             "**Other top-level keys:**\n"
@@ -332,7 +372,7 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                         help_text=(
                             "Per-field attribution map. Keys name Work fields; values name their source. "
                             "Known keys: abstract, authors, keywords, topics, type, geometry, doi, date, "
-                            "volume, issue, first_page, last_page, language, publisher, biblio, openalex_metadata, openalex. "
+                            "volume, issue, first_page, last_page, language, publisher, biblio, openalex_metadata, openalex, author_orcids. "
                             "Known values: original_source, openalex, openaire, crossref, DC.SpatialCoverage, "
                             "DC.box, link rel=alternate geo+json, study_sites, "
                             "original_source (year-only), primary."
@@ -407,7 +447,7 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                         help_text=(
                             "Chronological audit log. Each event has type (string) and at (ISO timestamp). "
                             "Event types: harvest_update, reharvest_source_extents, doi_backfill, doi_contribution, "
-                            "contribution, publish, unpublish, source_migration, openaire_enrich, dedup_merge, dedup_unmerge. "
+                            "contribution, publish, unpublish, source_migration, openaire_enrich, dedup_merge, dedup_unmerge, author_link, geometry_repair. "
                             "user_id and user_email are present for staff/curators only."
                         ),
                     ),
@@ -443,6 +483,7 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                     },
                     "metadata_sources": {
                         "authors": "openalex",
+                        "author_orcids": "openalex",
                         "keywords": "original_source",
                         "topics": "openalex",
                         "geometry": "DC.SpatialCoverage",
@@ -860,6 +901,48 @@ class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Country.objects.real().order_by("name")
     serializer_class = CountrySerializer
     permission_classes = [AllowAny]
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List authors with published works",
+        description=(
+            "Returns all identity-bearing authors (with ORCID iD) who have at least one "
+            "published work on OPTIMAP. Paginated. Use the `orcid` lookup field on the "
+            "detail endpoint to retrieve a specific author."
+        ),
+        tags=["Authors"],
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve an author by ORCID iD",
+        description=(
+            "Look up a single author by their bare ORCID iD "
+            "(e.g. `0000-0002-1825-0097`). Returns 404 if the author is not in OPTIMAP."
+        ),
+        tags=["Authors"],
+        responses={
+            200: AuthorSerializer,
+            404: OpenApiResponse(_ERROR_RESPONSE, description="No author with this ORCID iD in OPTIMAP."),
+        },
+    ),
+)
+class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
+    """Identity-bearing authors linked to published works (issue #29, /by/ facet)."""
+
+    serializer_class = AuthorSerializer
+    permission_classes = [AllowAny]
+    lookup_field = "orcid"
+    lookup_value_regex = r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]"
+
+    def get_queryset(self):
+        from django.db.models import Count
+
+        return (
+            Author.objects.filter(orcid__isnull=False)
+            .annotate(_work_count=Count("works", filter=Q(works__status="p")))
+            .filter(_work_count__gt=0)
+            .order_by("name")
+        )
 
 
 @extend_schema_view(

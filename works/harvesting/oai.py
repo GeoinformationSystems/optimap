@@ -39,7 +39,7 @@ from .common import (
     start_harvesting_event,
 )
 from .metadata_html import extract_geometry_from_html, extract_timeperiod_from_html
-from .openalex import build_openalex_fields
+from .openalex import build_openalex_fields, link_openalex_authors
 from .sessions import (
     OAI_HTTP_TIMEOUT,
     OAI_RETRY_TOTAL,
@@ -327,6 +327,8 @@ def parse_oai_xml_and_save_works(
                         # precedence over per-record source switching.
                         if source and source.collection_id:
                             work.collections.add(source.collection_id)
+                    if action in ("created", "updated"):
+                        link_openalex_authors(work, openalex_fields)
                     if action == "created":
                         logger.info("Saved work id=%s: %s", work.id, title_value[:80] if title_value else "No title")
                     elif action == "updated":

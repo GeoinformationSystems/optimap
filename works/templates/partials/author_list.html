@@ -1,0 +1,9 @@
+{% comment %}
+Renders an ordered author list with optional ORCID iD links (/by/ facet, issue #29).
+Expects `authors_display` — a list of dicts from authors_for_display():
+  {"name": str, "orcid": str|None, "by_url": str|None}
+Authors with an ORCID get a /by/<orcid>/ name link + ORCID iD icon (opens orcid.org).
+Authors without an ORCID are rendered as plain text — no links, no fallback page.
+{% endcomment %}
+{% load static %}
+{% for author in authors_display %}{% if not forloop.first %}, {% endif %}{% if author.by_url %}<a href="{{ author.by_url }}">{{ author.name }}</a>&nbsp;<a href="https://orcid.org/{{ author.orcid }}" target="_blank" rel="noopener noreferrer" aria-label="ORCID profile for {{ author.name }}" title="ORCID iD: {{ author.orcid }}" class="orcid-id-link"><img src="{% static 'img/orcid-id-icon-16.png' %}" alt="ORCID iD" width="14" height="14" class="orcid-id-icon" style="vertical-align: text-bottom;" /></a>{% else %}{{ author.name }}{% endif %}{% endfor %}

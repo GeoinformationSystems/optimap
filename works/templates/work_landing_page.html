@@ -204,7 +204,9 @@
 {# Inline metadata list: the `·` separator is inserted between adjacent items #}
 {# via CSS (.meta-item + .meta-item::before), so it never trails the last one. #}
 <div class="meta muted">
-  {% if authors_list %}
+  {% if authors_display %}
+    <span class="meta-item"><i class="fas fa-users text-muted"></i> <strong>Authors:</strong> {% include "partials/author_list.html" with authors_display=authors_display %}</span>
+  {% elif authors_list %}
     <span class="meta-item"><i class="fas fa-users text-muted"></i> <strong>Authors:</strong> {{ authors_list|join:", " }}</span>
   {% endif %}
   {% if work.placename %}

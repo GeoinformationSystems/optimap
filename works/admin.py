@@ -19,6 +19,7 @@ from import_export.admin import ImportExportModelAdmin
 from leaflet.admin import LeafletGeoAdmin
 
 from works.models import (
+    Author,
     BaseMapLayer,
     BlockedDomain,
     BlockedEmail,
@@ -35,6 +36,7 @@ from works.models import (
     UserProfile,
     WikidataExportLog,
     Work,
+    WorkAuthor,
 )
 from works.tasks import (
     regenerate_all_data_dumps,
@@ -957,6 +959,24 @@ class CountryAdmin(admin.ModelAdmin):
     list_display = ("name", "iso_code", "last_loaded")
     search_fields = ("name", "iso_code")
     ordering = ("name",)
+
+
+class WorkAuthorInline(admin.TabularInline):
+    model = WorkAuthor
+    extra = 0
+    fields = ("author", "rank")
+    autocomplete_fields = ("author",)
+    ordering = ("rank",)
+
+
+@admin.register(Author)
+class AuthorAdmin(admin.ModelAdmin):
+    """Identity-bearing authors (ORCID / OpenAlex id) for /by/<orcid>/ pages."""
+
+    list_display = ("name", "orcid", "openalex_id", "last_seen")
+    search_fields = ("name", "orcid", "openalex_id")
+    ordering = ("name",)
+    readonly_fields = ("last_seen",)
 
 
 @admin.register(Collection)

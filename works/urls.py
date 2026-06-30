@@ -244,6 +244,8 @@ urlpatterns = [
     path("at/<slug:place_slug>/", views_indexed.place_page, name="at-place"),
     path("during/<int:year>/", views_indexed.year_page, name="during-year"),
     path("on/<slug:topic_slug>/", views_indexed.topic_page, name="on-topic"),
+    path("by/", views_indexed.author_index, name="by-index"),
+    path("by/<str:orcid>/", views_indexed.author_page, name="by-author"),
     path("in/", views_sources.source_index, name="in-index"),
     path("in/<slug:source_slug>/", views_sources.source_page, name="in-source"),
     # Collection vanity short URL — must be last so the explicit patterns above win.

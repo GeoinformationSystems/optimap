@@ -5,7 +5,7 @@ from django.contrib.sitemaps import Sitemap
 from django.db.models import Count, Q
 from django.urls import reverse
 
-from works.models import Collection, Country, GlobalRegion, Source, Work
+from works.models import Author, Collection, Country, GlobalRegion, Source, Work
 
 
 class WorksSitemap(Sitemap):  # based on django.contrib.sitemaps.GenericSitemap
@@ -223,3 +223,24 @@ class SourceFeedsSitemap(Sitemap):
         source, fmt = item
         name = "api-source-georss" if fmt == "rss" else "api-source-atom"
         return reverse(f"optimap:{name}", kwargs={"source_slug": source.slug})
+
+
+class AuthorSitemap(Sitemap):
+    """Sitemap for /by/<orcid>/ author facet pages (issue #29)."""
+
+    priority = 0.5
+    changefreq = "weekly"
+
+    def items(self):
+        return (
+            Author.objects.filter(orcid__isnull=False)
+            .annotate(_work_count=Count("works", filter=Q(works__status="p")))
+            .filter(_work_count__gt=0)
+            .order_by("name")
+        )
+
+    def location(self, obj):
+        return reverse("optimap:by-author", kwargs={"orcid": obj.orcid})
+
+    def lastmod(self, obj):
+        return obj.last_seen

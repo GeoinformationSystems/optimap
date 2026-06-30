@@ -292,6 +292,10 @@ download URLs directly.
             "name": "Contribute",
             "description": "User contributions to OPTIMAP — add a new work by submitting its DOI (harvested from Crossref and enriched). Session auth required.",
         },
+        {
+            "name": "Authors",
+            "description": "Identity-bearing authors (ORCID iD / OpenAlex author id) linked to published works. Used by the `/by/<orcid>/` facet pages.",
+        },
     ],
     "SWAGGER_UI_DIST": "SIDECAR",  # shorthand to use the sidecar instead
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",

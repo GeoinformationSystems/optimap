@@ -15,6 +15,7 @@ Schema:
         },
         "metadata_sources": {            # per-field origin
             "authors": "openalex" | "original_source",
+            "author_orcids": "openalex" | "openaire",   # source that wrote Work.author_links (Author M2M)
             "geometry": "DC.SpatialCoverage",
             ...
         },
@@ -47,7 +48,11 @@ Schema:
             {"type": "contribution", "user_id": 42, "kind": "spatial",
              "at": "2026-04-30T...", "changes": [...]},
             {"type": "publish", "user_id": 1, "at": "..."},
-            {"type": "unpublish", "user_id": 1, "at": "..."}
+            {"type": "unpublish", "user_id": 1, "at": "..."},
+            {"type": "author_link", "source": "openalex", "linked": 3,
+             "orcids": ["0000-0002-1825-0097"], "at": "..."},
+            {"type": "geometry_repair", "method": "make_valid",
+             "at": "..."},          # invalid geometry repaired with GEOS make_valid on save
         ],
     }
 

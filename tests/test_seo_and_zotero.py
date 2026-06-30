@@ -179,6 +179,36 @@ class WorkLandingSEOTests(TestCase):
         self.assertEqual(article["publisher"]["@type"], "Organization")
         self.assertEqual(article["publisher"]["name"], "SEO Test Journal")
 
+    def test_jsonld_author_orcid_in_same_as(self):
+        """Authors with an ORCID get sameAs: https://orcid.org/... in the JSON-LD."""
+        from works.models import Author, WorkAuthor
+
+        alice = Author.objects.create(name="Mariana Sontag-Gonzalez", orcid="0000-0002-1825-0097")
+        WorkAuthor.objects.create(work=self.work, author=alice, rank=0)
+        resp = self.client.get(self.url)
+        soup = BeautifulSoup(resp.content, "html.parser")
+        article = next(
+            (b for b in _find_jsonld(soup) if b.get("@type") == "ScholarlyArticle"),
+            None,
+        )
+        self.assertIsNotNone(article)
+        authors = article["author"]
+        alice_entry = next((a for a in authors if a["name"] == "Mariana Sontag-Gonzalez"), None)
+        self.assertIsNotNone(alice_entry, "Alice not found in schema.org author list")
+        self.assertEqual(alice_entry["sameAs"], "https://orcid.org/0000-0002-1825-0097")
+
+    def test_jsonld_author_without_orcid_has_no_same_as(self):
+        """Authors without an ORCID must not get a sameAs field."""
+        resp = self.client.get(self.url)
+        soup = BeautifulSoup(resp.content, "html.parser")
+        article = next(
+            (b for b in _find_jsonld(soup) if b.get("@type") == "ScholarlyArticle"),
+            None,
+        )
+        self.assertIsNotNone(article)
+        for person in article["author"]:
+            self.assertNotIn("sameAs", person)
+
     def test_citation_meta_tags(self):
         resp = self.client.get(self.url)
         soup = BeautifulSoup(resp.content, "html.parser")

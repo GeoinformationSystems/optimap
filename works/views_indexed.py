@@ -38,7 +38,7 @@ from django_q.humanhash import humanize as humanize_task_id
 from django_q.tasks import async_task
 
 from .feeds import get_region_from_slug, normalize_region_slug
-from .models import SENTINEL_COUNTRY_ISO, Country, GlobalRegion, Source, StatisticsSnapshot, Work
+from .models import SENTINEL_COUNTRY_ISO, Author, Country, GlobalRegion, Source, StatisticsSnapshot, Work
 from .seo import build_facet_page_meta, coins_title
 from .utils.geojson import build_works_map_context
 from .utils.geometry import annotate_rounded_geometry
@@ -619,3 +619,73 @@ def place_index(request):
             "canonical_url": request.build_absolute_uri(page_url),
         },
     )
+
+
+# --- /by/ author pages -------------------------------------------------------
+
+
+def author_page(request, orcid):
+    """Works by an author identified by their bare ORCID iD.
+
+    Matches the canonical bare form (e.g. '0000-0002-1825-0097'). An ORCID
+    supplied as a URL (https://orcid.org/...) is normalized and redirected.
+    """
+    from works.utils.orcid import normalize_orcid
+
+    normalized = normalize_orcid(orcid)
+    if normalized is None:
+        raise Http404(f"Invalid ORCID: {orcid}")
+
+    # Redirect URL-form ORCIDs to the canonical bare slug.
+    if orcid != normalized:
+        return redirect(reverse("optimap:by-author", kwargs={"orcid": normalized}), permanent=True)
+
+    author = get_object_or_404(Author, orcid=normalized)
+    works = (
+        Work.objects.filter(status__in=["p", "h"], author_links=author)
+        .select_related("source")
+        .order_by("-creationDate", "-id")
+        .distinct()
+    )
+    works = annotate_rounded_geometry(works)
+    page_url = reverse("optimap:by-author", kwargs={"orcid": normalized})
+    return _render_facet(
+        request,
+        page_url=page_url,
+        heading=f"Works by {author.name}",
+        lead="",
+        title=f"{author.name} — works on OPTIMAP",
+        description=f"Research works by {author.name} with geographic metadata on OPTIMAP.",
+        works=works,
+        with_map=True,
+        map_cache_key=f"facet_map_all:author:{normalized}",
+        extra={"author": author},
+    )
+
+
+def author_index(request):
+    """Paginated directory of all identity-bearing authors with published works."""
+    qs = (
+        Author.objects.filter(orcid__isnull=False)
+        .annotate(work_count=Count("works", filter=Q(works__status__in=["p", "h"])))
+        .filter(work_count__gt=0)
+        .order_by("name")
+    )
+    page_obj, page_size = paginate_works(request, qs)
+    page_url = reverse("optimap:by-index")
+    meta = build_facet_page_meta(
+        request,
+        title="People on OPTIMAP — authors with published works",
+        description="Browse research authors with published works on OPTIMAP, linked by ORCID iD.",
+        page_url=page_url,
+    )
+    context = {
+        "facet_heading": "People",
+        "facet_lead": "Authors of published works on OPTIMAP, identified by ORCID iD.",
+        "page_obj": page_obj,
+        "page_size": page_size,
+        "page_size_options": settings.WORKS_PAGE_SIZE_OPTIONS,
+        "meta": meta,
+        "canonical_url": request.build_absolute_uri(page_url),
+    }
+    return render(request, "author_index.html", context)

@@ -203,6 +203,21 @@ def _format_timeperiod(work):
     return "; ".join(labels) or None
 
 
+def _authors_for_display(work):
+    """Return structured author list for the author_list.html partial.
+
+    Delegates to ``works.services.authors.authors_for_display`` but catches all
+    errors so a missing prefetch or unexpected model state never breaks the
+    work landing page.
+    """
+    try:
+        from works.services.authors import authors_for_display
+
+        return authors_for_display(work)
+    except Exception:
+        return []
+
+
 def _normalize_authors(work):
     """
     Try a few common attribute names. Accepts string (split on , or ;) or list/tuple.
@@ -382,6 +397,7 @@ def _build_work_landing_cacheable(request, work, identifier_type):
         "existing_periods": existing_periods,
         "existing_periods_json": json.dumps(existing_periods),
         "authors_list": _normalize_authors(work),
+        "authors_display": _authors_for_display(work),
         "has_geometry": bool(work.geometry and not work.geometry.empty),
         "has_temporal": (
             any(d is not None for d in (work.timeperiod_startdate or []))

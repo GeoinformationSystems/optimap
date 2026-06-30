@@ -208,6 +208,14 @@ class Work(models.Model):
         help_text="Global regions (continents and oceans) whose outline intersects the "
         "work's geometry (offline point-in-polygon join; multi-valued).",
     )
+    author_links = models.ManyToManyField(
+        "Author",
+        through="WorkAuthor",
+        related_name="works",
+        blank=True,
+        help_text="Identity-bearing authors (with ORCID and/or OpenAlex id) of this work, "
+        "ordered via WorkAuthor.rank. Display names remain in Work.authors.",
+    )
 
     # OpenAlex-specific fields (only from OpenAlex)
     openalex_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
@@ -816,6 +824,62 @@ class Country(models.Model):
 
     def get_absolute_url(self):
         return reverse("optimap:at-place", kwargs={"place_slug": self.get_slug()})
+
+
+class Author(models.Model):
+    """An identity-bearing author (has an ORCID and/or OpenAlex author id), used for
+    the /by/<orcid> permalink pages (issue #29). Linked to works via the ordered
+    Work.author_links M2M (related_name="works"). Display names continue to live in
+    the denormalized Work.authors ArrayField. Mirrors :class:`Country`.
+
+    Only authors with at least one identifier (orcid or openalex_id) get a row here;
+    anonymous/unidentified names stay only in Work.authors.
+    """
+
+    orcid = models.CharField(
+        max_length=19,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Bare ORCID iD, e.g. '0000-0002-1825-0097'. Null when only an OpenAlex id is known.",
+    )
+    openalex_id = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="OpenAlex author id, e.g. 'A5012345678'.",
+    )
+    name = models.CharField(max_length=255, help_text="Most recently seen display name.")
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.orcid or self.openalex_id})"
+
+    def get_absolute_url(self):
+        if self.orcid:
+            return reverse("optimap:by-author", kwargs={"orcid": self.orcid})
+        return reverse("optimap:by-index")
+
+
+class WorkAuthor(models.Model):
+    """Ordered through-table between Work and Author (preserves author rank)."""
+
+    work = models.ForeignKey("Work", on_delete=models.CASCADE, related_name="work_authors")
+    author = models.ForeignKey("Author", on_delete=models.CASCADE, related_name="work_authors")
+    rank = models.PositiveIntegerField(default=0, help_text="0-based position in the author list.")
+
+    class Meta:
+        unique_together = ("work", "author")
+        ordering = ["rank"]
+
+    def __str__(self):
+        return f"{self.author.name} on {self.work_id} (rank {self.rank})"
 
 
 class Collection(models.Model):

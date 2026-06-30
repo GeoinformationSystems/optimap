@@ -19,6 +19,7 @@
 
 {% block extra_meta %}
 {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}" />{% endif %}
+{% if author and author.orcid %}<link rel="author" href="https://orcid.org/{{ author.orcid }}" />{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -26,10 +27,30 @@
   <div class="row justify-content-center">
     <div class="col-md-10 col-lg-8 py-5">
       <h1 class="py-2">{{ facet_heading }}</h1>
-      <p class="lead">{{ facet_lead }}</p>
+      {% if author and author.orcid %}
+      <p class="lead">
+        <a href="https://orcid.org/{{ author.orcid }}"
+           target="_blank"
+           rel="noopener noreferrer"
+           aria-label="ORCID profile for {{ author.name }}"
+           title="ORCID iD: {{ author.orcid }}">
+          <img src="{% static 'img/orcid-id-icon-16.png' %}"
+               alt="ORCID iD"
+               width="14" height="14"
+               style="vertical-align: text-bottom;" />
+          https://orcid.org/{{ author.orcid }}
+        </a>
+      </p>
+      {% elif facet_lead %}<p class="lead">{{ facet_lead }}</p>{% endif %}
 
       {% if page_obj.object_list %}
-        {% if map_has_features %}{% include "partials/works_map.html" %}{% endif %}
+        {% if map_has_features %}{% include "partials/works_map.html" %}{% elif author %}
+        <div class="alert alert-info mb-4" role="alert">
+          <i class="fas fa-map-marker-alt"></i>
+          None of {{ author.name }}'s works have geographic metadata yet.
+          Click on a work below to add the location and time extent — it only takes a minute!
+        </div>
+        {% endif %}
         <h2 class="h4 mb-3">{{ work_count_total }} work{{ work_count_total|pluralize }}</h2>
         {% include "_pagination.html" with show_meta=True pagination_label="Facet pagination" %}
         <div class="publication-grid">

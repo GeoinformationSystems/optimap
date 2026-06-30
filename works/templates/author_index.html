@@ -1,0 +1,58 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# Paginated index of identity-bearing authors (/by/), issue #29. #}
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ facet_heading }} | {% endblock %}
+
+{% block extra_meta %}
+{% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}" />{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid locate-container">
+  <div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8 py-5">
+      <h1 class="py-2">{{ facet_heading }}</h1>
+      <p class="lead">{{ facet_lead }}</p>
+
+      {% if page_obj.object_list %}
+        {% include "_pagination.html" with show_meta=True pagination_label="Author list pagination" pagination_item_label="authors" pagination_per_page_label="Authors" %}
+        <div class="list-group mb-4">
+          {% for author in page_obj.object_list %}
+            <div class="list-group-item list-group-item-action">
+              <div class="d-flex w-100 justify-content-between align-items-start">
+                <div>
+                  {% if author.orcid %}
+                    <a href="{% url 'optimap:by-author' author.orcid %}">{{ author.name }}</a>&nbsp;<a href="https://orcid.org/{{ author.orcid }}"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       aria-label="ORCID profile for {{ author.name }}"
+                       title="ORCID iD: {{ author.orcid }}"
+                       class="ml-1">
+                      <img src="{% static 'img/orcid-id-icon-16.png' %}"
+                           alt="ORCID iD"
+                           width="14" height="14"
+                           style="vertical-align: text-bottom;" />
+                    </a>
+                    <small class="text-muted ml-2">{{ author.orcid }}</small>
+                  {% else %}
+                    {{ author.name }}
+                  {% endif %}
+                </div>
+                <span class="badge bg-secondary">{{ author.work_count }} work{% if author.work_count != 1 %}s{% endif %}</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        {% include "_pagination.html" with pagination_label="Author list pagination" %}
+
+      {% else %}
+        <p class="text-muted">No authors with ORCID iDs have published works on OPTIMAP yet.</p>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}

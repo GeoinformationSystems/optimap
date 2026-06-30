@@ -19,21 +19,24 @@
     aria-labelledby="unifiedMenuDropdown"
     style="min-width: 280px; margin-top: 1rem;">
 
-    <!-- Main Navigation Section -->
+    <!-- Discover -->
     <li><a class="dropdown-item" href="/"><i class="fas fa-home"></i> Home</a></li>
-    <li><a class="dropdown-item" href="{% url 'optimap:works' %}"><i class="fas fa-list"></i> Browse Works</a></li>
+    <li><a class="dropdown-item" href="{% url 'optimap:browse' %}"><i class="fas fa-sitemap"></i> Browse (places, years, sources, topics, people)</a></li>
+    <li><a class="dropdown-item" href="{% url 'optimap:feeds' %}"><i class="fas fa-globe"></i> Regions</a></li>
+    <li><a class="dropdown-item" href="{% url 'optimap:countries' %}"><i class="fas fa-flag"></i> Countries</a></li>
+    <li><a class="dropdown-item" href="{% url 'optimap:collections' %}"><i class="fas fa-layer-group"></i> Collections</a></li>
+    <div class="dropdown-divider" aria-hidden="true"></div>
+    <!-- Participate -->
     <li><a class="dropdown-item" href="{% url 'optimap:contribute' %}"><i class="fas fa-hands-helping"></i> Contribute</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:contribute-next' %}"><i class="fas fa-gamepad"></i> Georeferencing game</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:recognition_board' %}"><i class="fas fa-trophy"></i> Recognition Board</a></li>
     <div class="dropdown-divider" aria-hidden="true"></div>
+    <!-- Data & Tools -->
     <li><a class="dropdown-item" href="{% url 'optimap:data' %}"><i class="fas fa-database"></i> Data & API</a></li>
-    <li><a class="dropdown-item" href="{% url 'optimap:collections' %}"><i class="fas fa-layer-group"></i> Collections</a></li>
-    <li><a class="dropdown-item" href="{% url 'optimap:feeds' %}"><i class="fas fa-globe"></i> Regions</a></li>
-    <li><a class="dropdown-item" href="{% url 'optimap:countries' %}"><i class="fas fa-flag"></i> Countries</a></li>
-    <li><a class="dropdown-item" href="{% url 'optimap:browse' %}"><i class="fas fa-sitemap"></i> Browse (places, years, sources, topics)</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:geoextent' %}"><i class="fas fa-map-marked-alt"></i> Geoextent</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:statistics' %}"><i class="fas fa-chart-bar"></i> Statistics</a></li>
     <div class="dropdown-divider" aria-hidden="true"></div>
+    <!-- About -->
     <li><a class="dropdown-item" href="{% url 'optimap:about' %}"><i class="fas fa-info-circle"></i> About</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:contact' %}"><i class="fas fa-envelope"></i> Contact</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:accessibility' %}"><i class="fas fa-universal-access"></i> Accessibility</a></li>

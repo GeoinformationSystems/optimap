@@ -10,7 +10,10 @@ set -e  # Exit on error
 echo "Downloading JavaScript libraries..."
 
 # Create directories if they don't exist
-mkdir -p js css/images css/fonts webfonts
+mkdir -p js css/images css/fonts webfonts img
+
+echo "  - ORCID iD icon (16px)"
+wget -q "https://orcid.org/sites/default/files/images/orcid_16x16.png" -O img/orcid-id-icon-16.png
 
 # Core libraries (already present, but updated versions)
 echo "  - jQuery 3.4.1"
