@@ -99,6 +99,7 @@ class Command(BaseCommand):
             task_id = async_task(
                 "works.tasks.enrich_openaire_backfill",
                 q_options=openaire_task_q_options(),
+                chunked=True,
                 **filters,
             )
             # Django-Q stores the task under a humanized form of the UUID; that is

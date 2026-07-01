@@ -1,0 +1,21 @@
+[OPTIMAP] 🛑 OpenAIRE enrichment aborted — {{ context }}
+
+Hello,
+
+An OPTIMAP OpenAIRE enrichment job was stopped automatically because OpenAIRE
+returned {{ consecutive }} consecutive systemic errors (HTTP {{ status }}).
+
+This usually means OpenAIRE is rejecting OPTIMAP's requests — an expired or
+invalid access token, a revoked refresh token, an IP block, or sustained
+rate-limiting — rather than the individual works being missing from OpenAIRE.
+
+Job:        {{ context }}
+Processed:  {{ processed }} of {{ total }} work(s) before aborting
+Last error: {{ error }}
+
+What to check:
+- Renew the OpenAIRE refresh token in the Django admin (Works → Service tokens).
+- Confirm OpenAIRE's Graph API is reachable and not rate-limiting OPTIMAP.
+
+The Django-Q task that ran this job is recorded as failed. Re-run the enrichment
+once OpenAIRE access is restored.

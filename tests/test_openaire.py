@@ -5,9 +5,12 @@
 
 import os
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import django
+import requests
+from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase, override_settings, tag
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "optimap.settings")
@@ -23,6 +26,7 @@ from works.harvesting.common import (
 )
 from works.harvesting.enrichment import apply_enrichment
 from works.harvesting.openaire import (
+    OpenAireUnavailable,
     build_openaire_fields,
     enrich_event_from_openaire,
     enrich_work_from_openaire,
@@ -338,6 +342,8 @@ class EnrichOpenaireCommandTest(TestCase):
         mock_async.assert_called_once()
         self.assertEqual(mock_async.call_args[0][0], "works.tasks.enrich_openaire_backfill")
         self.assertEqual(mock_async.call_args[1]["collection"], "eartharxiv")
+        # The async path runs in bounded chunks (re-enqueued continuations).
+        self.assertTrue(mock_async.call_args[1]["chunked"])
         # Output carries both the raw id and the humanized admin "Name" so the
         # operator can locate the task in the Django Q admin.
         from django_q.humanhash import humanize
@@ -345,6 +351,94 @@ class EnrichOpenaireCommandTest(TestCase):
         output = out.getvalue()
         self.assertIn("9f8c2a1b4d5e6f708192a3b4c5d6e7f8", output)
         self.assertIn(humanize("9f8c2a1b4d5e6f708192a3b4c5d6e7f8"), output)
+
+
+def _session_raising(status_code):
+    """A fake requests session whose GET raises an HTTPError with ``status_code``."""
+    resp = MagicMock()
+    err = requests.HTTPError(f"{status_code} Client Error")
+    err.response = MagicMock(status_code=status_code)
+    resp.raise_for_status.side_effect = err
+    session = MagicMock()
+    session.get.return_value = resp
+    return session
+
+
+class FetchClassificationTest(TestCase):
+    """fetch_openaire_record distinguishes systemic failures from 'not found'."""
+
+    def test_systemic_status_raises_when_flag_set(self):
+        for status in (401, 403, 408, 429, 500, 503):
+            with self.subTest(status=status):
+                with self.assertRaises(OpenAireUnavailable) as ctx:
+                    fetch_openaire_record("10.1/x", session=_session_raising(status), raise_on_unavailable=True)
+                self.assertEqual(ctx.exception.status, status)
+
+    def test_404_returns_none_even_with_flag(self):
+        # A genuine "not found" is not systemic — still None, never raises.
+        self.assertIsNone(fetch_openaire_record("10.1/x", session=_session_raising(404), raise_on_unavailable=True))
+
+    def test_403_returns_none_by_default(self):
+        # Backward compatible: live per-work callers never see the exception.
+        self.assertIsNone(fetch_openaire_record("10.1/x", session=_session_raising(403)))
+
+    def test_connection_error_raises_with_null_status(self):
+        session = MagicMock()
+        session.get.side_effect = requests.ConnectionError("boom")
+        with self.assertRaises(OpenAireUnavailable) as ctx:
+            fetch_openaire_record("10.1/x", session=session, raise_on_unavailable=True)
+        self.assertIsNone(ctx.exception.status)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER=2,
+)
+class SweepCircuitBreakerTest(TestCase):
+    """A run of systemic failures aborts the sweep, emails staff, and fails the task."""
+
+    def setUp(self):
+        self.source = Source.objects.create(name="S", url_field="https://e.x/oai")
+        self.event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+        get_user_model().objects.create_user(
+            username="curator", email="curator@example.org", is_staff=True, is_active=True
+        )
+        for i in range(5):
+            Work.objects.create(title=f"w{i}", doi=f"10.1/{i}", status="h", job=self.event)
+
+    @patch(
+        "works.harvesting.openaire.fetch_openaire_record",
+        side_effect=OpenAireUnavailable("403 Forbidden", status=403),
+    )
+    def test_aborts_emails_and_raises(self, _mock):
+        with self.assertRaises(OpenAireUnavailable):
+            enrich_event_from_openaire(self.event.id, throttle=0)
+        # A staff alert naming the cause is sent (to every staff recipient).
+        alerts = [m for m in mail.outbox if "OpenAIRE enrichment aborted" in m.subject]
+        self.assertTrue(alerts)
+        self.assertIn("curator@example.org", [addr for m in alerts for addr in m.to])
+        self.assertIn("403", alerts[0].body)
+
+
+@override_settings(OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS=0)
+class SweepChunkingTest(TestCase):
+    """When the per-chunk budget is exhausted, the sweep re-enqueues a continuation."""
+
+    def setUp(self):
+        self.source = Source.objects.create(name="S", url_field="https://e.x/oai")
+        self.event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+        for i in range(3):
+            Work.objects.create(title=f"w{i}", doi=f"10.1/{i}", abstract="", status="h", job=self.event)
+
+    @patch("django_q.tasks.async_task")
+    @patch("works.harvesting.openaire.fetch_openaire_record", return_value=FAKE_RECORD)
+    def test_reenqueues_with_cursor_and_carry(self, _fetch, mock_async):
+        enrich_event_from_openaire(self.event.id, throttle=0)
+        # Budget 0 → one work processed, then a continuation is enqueued.
+        mock_async.assert_called_once()
+        self.assertEqual(mock_async.call_args[0][0], "works.harvesting.openaire.enrich_event_from_openaire")
+        self.assertGreater(mock_async.call_args[1]["after_id"], 0)
+        self.assertEqual(mock_async.call_args[1]["carry"]["processed"], 1)
 
 
 @tag("online")

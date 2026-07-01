@@ -478,12 +478,23 @@ OPTIMAP_DEDUP_AUTO_MERGE = env("OPTIMAP_DEDUP_AUTO_MERGE", default=True)
 # keeps anonymous runs under the 60/hour limit; lower it (e.g. 1) when a token is set.
 OPTIMAP_OPENAIRE_ENRICH_THROTTLE = float(os.getenv("OPTIMAP_OPENAIRE_ENRICH_THROTTLE", 60))
 # OpenAIRE enrichment sweeps / backfills sleep OPTIMAP_OPENAIRE_ENRICH_THROTTLE
-# seconds between requests, so a run over many DOIs can take hours — far longer
-# than the global Q_CLUSTER timeout (600s). These tasks therefore override the
-# per-task timeout (and a matching retry above it, so Django-Q does not re-queue
-# the still-running task). Default 24h; raise for very large backfills. Set to 0
-# to fall back to the cluster default.
-OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT = env.int("OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT", default=24 * 60 * 60)
+# seconds between requests. They now run in bounded chunks (see
+# OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS) and re-enqueue continuations, so each
+# Django-Q task stays short and the cluster stop signal is honoured between
+# chunks. The per-task timeout override is therefore disabled by default (0 =
+# use the cluster default); set a value only if you deliberately want long
+# single-task runs (which become un-killable until they finish or time out).
+OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT = env.int("OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT", default=0)
+# Wall-clock budget (seconds) one OpenAIRE enrichment chunk runs before
+# re-enqueuing a continuation. Keep it below Q_CLUSTER["timeout"] (600s) so a
+# chunk never outlives the cluster timeout.
+OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS = env.int("OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS", default=8 * 60)
+# Abort an OpenAIRE sweep / backfill (email staff + fail the task) after this
+# many *consecutive* systemic failures (HTTP 401/403/408/429, any 5xx, or a
+# connection/timeout error) — i.e. "OpenAIRE is refusing us", as opposed to a
+# DOI simply not being in OpenAIRE. Stops a broken run from spamming warnings
+# for hours.
+OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER = env.int("OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER", default=5)
 # OpenAIRE refresh-token workflow (stored in the DB via the ServiceToken model,
 # editable in the Django admin — no SSH needed). A refresh token obtained from
 # https://develop.openaire.eu/personal-token expires after one month and is

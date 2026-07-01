@@ -975,20 +975,40 @@ def enrich_openaire_backfill(
     force=False,
     dry_run=False,
     on_progress=None,
+    chunked=False,
+    after_id=0,
+    carry=None,
 ):
     """Backfill missing abstract/keywords/authors on existing works from OpenAIRE.
 
     Shared core for the ``enrich_openaire`` management command: runs synchronously
-    when called directly (command's sync path) and as a single Django-Q task when
-    enqueued with ``--async``. Selects works by collection / DOI prefix / source
-    (mirrors the command flags) and fills empty target fields via
-    ``enrich_work_from_openaire`` (fill-if-empty; never overwrites).
+    when called directly (command's sync path, ``chunked=False`` — interruptible
+    with Ctrl-C) and as Django-Q tasks when enqueued with ``--async``
+    (``chunked=True``). Selects works by collection / DOI prefix / source (mirrors
+    the command flags) and fills empty target fields via ``enrich_work_from_openaire``
+    (fill-if-empty; never overwrites).
 
-    ``on_progress`` is an optional ``callable(str)`` for per-work lines; the
-    command passes ``self.stdout.write`` to preserve its interactive output. When
-    ``None`` (async path) progress goes to the logger so it shows up in the Q
-    worker log. Returns a summary dict suitable as the Django-Q task result.
+    When ``chunked``, the task processes works only until a wall-clock budget
+    (``OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS``) elapses, then re-enqueues itself with
+    an ``after_id`` cursor and the running ``carry`` totals — so each Django-Q task
+    stays short and the cluster's stop signal is honoured between chunks.
+
+    After ``OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER`` *consecutive* systemic OpenAIRE
+    failures (:class:`~works.harvesting.openaire.OpenAireUnavailable`) the run emails
+    staff and raises, instead of becoming a dead job that spams warnings for hours.
+
+    ``on_progress`` is an optional ``callable(str)`` for per-work lines; the command
+    passes ``self.stdout.write`` to preserve its interactive output. When ``None``
+    (async path) progress goes to the logger. Returns a summary dict suitable as the
+    Django-Q task result.
     """
+    from works.harvesting.openaire import (
+        OpenAireUnavailable,
+        _SystemicFailureBreaker,
+        notify_openaire_abort,
+        openaire_task_q_options,
+    )
+
     if throttle is None:
         throttle = settings.OPTIMAP_OPENAIRE_ENRICH_THROTTLE
 
@@ -998,37 +1018,71 @@ def enrich_openaire_backfill(
         else:
             logger.info(message)
 
-    qs = Work.objects.filter(doi__isnull=False).exclude(doi="")
+    base_qs = Work.objects.filter(doi__isnull=False).exclude(doi="")
     if not force:
-        qs = qs.filter(_OPENAIRE_MISSING_TARGET_FIELD)
+        base_qs = base_qs.filter(_OPENAIRE_MISSING_TARGET_FIELD)
     if collection:
-        qs = qs.filter(collections__identifier=collection)
+        base_qs = base_qs.filter(collections__identifier=collection)
     if doi_prefix:
-        qs = qs.filter(doi__startswith=doi_prefix)
+        base_qs = base_qs.filter(doi__startswith=doi_prefix)
     if source:
         source = str(source)
-        qs = qs.filter(source_id=int(source)) if source.isdigit() else qs.filter(source__name=source)
-    qs = qs.order_by("id").distinct()
-    if limit:
-        qs = qs[:limit]
+        base_qs = base_qs.filter(source_id=int(source)) if source.isdigit() else base_qs.filter(source__name=source)
+    base_qs = base_qs.order_by("id").distinct()
 
-    total = qs.count()
-    if dry_run:
-        report("DRY RUN — no changes will be saved")
-    report(f"Processing {total} work(s) against OpenAIRE...")
+    carry = carry or {}
+    processed = carry.get("processed", 0)
+    updated = carry.get("updated", 0)
+    no_match = carry.get("no_match", 0)
+    failed = carry.get("failed", 0)
+    total = carry.get("total")
+    if total is None:
+        total = base_qs.count()
+        if limit:
+            total = min(total, limit)
+    remaining = (limit - processed) if limit else None
 
+    if after_id == 0:
+        if dry_run:
+            report("DRY RUN — no changes will be saved")
+        report(f"Processing {total} work(s) against OpenAIRE...")
+
+    deadline = (time.monotonic() + settings.OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS) if chunked else None
+    breaker = _SystemicFailureBreaker(settings.OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER)
     session = _openaire_session()
-    processed = updated = no_match = failed = 0
+    last_id = after_id
+    aborted = False
     try:
-        for work in qs.iterator(chunk_size=50):
+        for work in base_qs.filter(id__gt=after_id).iterator(chunk_size=50):
+            if remaining is not None and remaining <= 0:
+                break
             processed += 1
+            if remaining is not None:
+                remaining -= 1
             doi = work.doi or ""
             try:
-                enrich_work_from_openaire(work, session=session, save=not dry_run)
+                enrich_work_from_openaire(work, session=session, save=not dry_run, raise_on_unavailable=True)
+                breaker.ok()
+            except OpenAireUnavailable as exc:
+                if breaker.systemic(exc):
+                    notify_openaire_abort(
+                        "backfill", breaker, processed=processed, total=total, trigger_source="manual"
+                    )
+                    aborted = True
+                    last_id = work.id
+                    break
+                logger.warning("OpenAIRE backfill: systemic failure for work %s (%s): %s", work.id, doi, exc)
+                failed += 1
+                last_id = work.id
+                if throttle:
+                    time.sleep(throttle)
+                continue
             except Exception as exc:
                 logger.warning("OpenAIRE enrich failed for work %s (%s): %s", work.id, doi, exc)
+                breaker.ok()
                 failed += 1
-                if processed < total and throttle:
+                last_id = work.id
+                if throttle:
                     time.sleep(throttle)
                 continue
 
@@ -1046,7 +1100,10 @@ def enrich_openaire_backfill(
                 else:
                     report(f"  [{work.id}] {doi} — matched, nothing to fill")
 
-            if processed < total and throttle:
+            last_id = work.id
+            if chunked and time.monotonic() >= deadline:
+                break
+            if throttle:
                 time.sleep(throttle)
     finally:
         session.close()
@@ -1057,7 +1114,40 @@ def enrich_openaire_backfill(
         "no_match": no_match,
         "failed": failed,
         "dry_run": dry_run,
+        "aborted": aborted,
     }
+
+    if aborted:
+        report(f"ABORTED. processed={processed} updated={updated} no_match={no_match} failed={failed}")
+        raise OpenAireUnavailable(
+            f"OpenAIRE backfill aborted after {breaker.consecutive} consecutive systemic failures",
+            status=getattr(breaker.last_error, "status", None),
+        )
+
+    more_left = (remaining is None or remaining > 0) and base_qs.filter(id__gt=last_id).exists()
+    if chunked and more_left:
+        from django_q.tasks import async_task
+
+        async_task(
+            "works.tasks.enrich_openaire_backfill",
+            collection=collection,
+            doi_prefix=doi_prefix,
+            source=source,
+            limit=limit,
+            throttle=throttle,
+            force=force,
+            dry_run=dry_run,
+            chunked=True,
+            after_id=last_id,
+            carry={**summary, "total": total},
+            q_options=openaire_task_q_options(),
+        )
+        report(
+            f"Chunk done. processed={processed} updated={updated} no_match={no_match} "
+            f"failed={failed}; continuation enqueued."
+        )
+        return summary
+
     report(f"Done. processed={processed} updated={updated} no_match={no_match} failed={failed}")
     return summary
 

@@ -32,6 +32,7 @@ import time
 
 import requests
 from django.conf import settings
+from django.core.mail import send_mail
 
 from works.harvesting.enrichment import apply_enrichment
 from works.harvesting.sessions import (
@@ -46,6 +47,103 @@ from works.utils.orcid import normalize_orcid
 from works.utils.provenance import append_event
 
 logger = logging.getLogger(__name__)
+
+
+class OpenAireUnavailable(RuntimeError):
+    """OpenAIRE returned a *systemic* error, not a clean "not found".
+
+    Distinguishes "OpenAIRE is refusing or unable to answer us" — an expired /
+    revoked token, an IP block, rate-limiting, or a server/connection failure —
+    from "this DOI is simply not in OpenAIRE" (a normal per-work outcome, still
+    returned as ``None``). Batch callers (the post-harvest sweep and the
+    backfill) opt in via ``raise_on_unavailable=True`` and use this to trip a
+    circuit breaker instead of grinding through thousands of doomed requests.
+    Carries the HTTP status (``None`` for connection/timeout errors).
+    """
+
+    def __init__(self, message, *, status=None, doi=None):
+        super().__init__(message)
+        self.status = status
+        self.doi = doi
+
+
+# HTTP statuses that mean "OpenAIRE refused / cannot serve us" (plus any 5xx),
+# as opposed to 404 / 200-with-no-results which mean "not found".
+_OPENAIRE_SYSTEMIC_STATUSES = frozenset({401, 403, 408, 429})
+
+
+class _SystemicFailureBreaker:
+    """Counts *consecutive* systemic failures; trips at ``threshold``.
+
+    A single transient blip should not abort a multi-hour batch, but a run of
+    identical failures (e.g. every request returning 403) means OpenAIRE access
+    is broken and there is no point continuing.
+    """
+
+    def __init__(self, threshold):
+        self.threshold = max(1, int(threshold))
+        self.consecutive = 0
+        self.last_error = None
+
+    def ok(self):
+        self.consecutive = 0
+
+    def systemic(self, exc):
+        """Record a systemic failure; return True once the threshold is reached."""
+        self.consecutive += 1
+        self.last_error = exc
+        return self.consecutive >= self.threshold
+
+
+def notify_openaire_abort(context, breaker, *, processed, total, trigger_source="scheduled"):
+    """Email active staff (and log ERROR) that an OpenAIRE batch aborted.
+
+    Turns a silently failing, hours-long "dead" job into a single actionable
+    alert. Mirrors the staff-email pattern used by ``check_service_token_renewals``.
+    """
+    from django.contrib.auth import get_user_model
+
+    from works.models import EmailLog
+    from works.utils.email import render_email
+
+    last_error = breaker.last_error
+    status = getattr(last_error, "status", None)
+    logger.error(
+        "OpenAIRE %s aborted after %d consecutive systemic failures (HTTP %s): %s",
+        context,
+        breaker.consecutive,
+        status if status is not None else "connection error",
+        last_error,
+    )
+
+    User = get_user_model()
+    recipients = list(
+        User.objects.filter(is_staff=True, is_active=True).exclude(email="").values_list("email", flat=True)
+    )
+    if not recipients:
+        logger.warning("notify_openaire_abort: no staff emails configured; alert not sent.")
+        return
+
+    subject, body = render_email(
+        "email/openaire_enrich_aborted.en.txt",
+        {
+            "context": context,
+            "consecutive": breaker.consecutive,
+            "status": status if status is not None else "connection error",
+            "error": str(last_error),
+            "processed": processed,
+            "total": total,
+        },
+    )
+    for recipient in recipients:
+        try:
+            send_mail(subject, body, settings.EMAIL_HOST_USER, [recipient], fail_silently=False)
+            EmailLog.log_email(recipient, subject, body, trigger_source=trigger_source, status="success")
+        except Exception as ex:  # noqa: BLE001
+            logger.exception("Failed to send OpenAIRE abort alert to %s.", recipient)
+            EmailLog.log_email(
+                recipient, subject, body, trigger_source=trigger_source, status="failed", error_message=str(ex)
+            )
 
 
 def openaire_task_q_options():
@@ -159,11 +257,15 @@ def get_openaire_access_token():
     return access_token
 
 
-def fetch_openaire_record(doi, session=None):
+def fetch_openaire_record(doi, session=None, *, raise_on_unavailable=False):
     """Look up a single research product by DOI. Returns the record dict or None.
 
-    Tolerant of network and JSON errors (logged, returns None) so enrichment
-    never aborts a harvest or backfill.
+    By default every error is swallowed (logged, returns ``None``) so a single
+    live enrichment never aborts a harvest. Batch callers pass
+    ``raise_on_unavailable=True`` to get an :class:`OpenAireUnavailable` for
+    *systemic* failures (HTTP 401/403/408/429, any 5xx, or a connection/timeout
+    error) so they can trip a circuit breaker; a genuine 404 or an empty result
+    set is still returned as ``None`` (a normal "not in OpenAIRE" outcome).
     """
     if not doi:
         return None
@@ -173,7 +275,19 @@ def fetch_openaire_record(doi, session=None):
         resp = session.get(OPENAIRE_API_URL, params={"pid": doi}, timeout=OPENAIRE_HTTP_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-    except (requests.RequestException, ValueError) as exc:
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else None
+        if raise_on_unavailable and status is not None and (status in _OPENAIRE_SYSTEMIC_STATUSES or status >= 500):
+            raise OpenAireUnavailable(str(exc), status=status, doi=doi) from exc
+        logger.warning("OpenAIRE lookup failed for DOI %s: %s", doi, exc)
+        return None
+    except requests.RequestException as exc:
+        # Connection reset / timeout / DNS — systemic, not a clean "not found".
+        if raise_on_unavailable:
+            raise OpenAireUnavailable(str(exc), status=None, doi=doi) from exc
+        logger.warning("OpenAIRE lookup failed for DOI %s: %s", doi, exc)
+        return None
+    except ValueError as exc:
         logger.warning("OpenAIRE lookup failed for DOI %s: %s", doi, exc)
         return None
     finally:
@@ -289,7 +403,7 @@ def _author_records_from_openaire(record) -> list:
     return records
 
 
-def enrich_work_from_openaire(work, *, session=None, save=True):
+def enrich_work_from_openaire(work, *, session=None, save=True, raise_on_unavailable=False):
     """Enrich a single Work from OpenAIRE (fill-if-empty). Returns True if changed.
 
     Records the outcome in ``work.provenance`` regardless of whether anything was
@@ -297,9 +411,13 @@ def enrich_work_from_openaire(work, *, session=None, save=True):
     an ``openaire_enrich`` event listing ``fields_filled`` and
     ``fields_offered_not_applied`` (the conflicts resolved in favour of the
     existing value).
+
+    ``raise_on_unavailable`` is forwarded to :func:`fetch_openaire_record`: batch
+    callers set it so a systemic OpenAIRE failure raises :class:`OpenAireUnavailable`
+    (to trip their circuit breaker) instead of being recorded as ``status: none``.
     """
     doi = (work.doi or "").strip()
-    record = fetch_openaire_record(doi, session=session) if doi else None
+    record = fetch_openaire_record(doi, session=session, raise_on_unavailable=raise_on_unavailable) if doi else None
 
     if not record:
         provenance = work.provenance if isinstance(work.provenance, dict) else {}
@@ -346,7 +464,7 @@ def enrich_work_from_openaire(work, *, session=None, save=True):
     return bool(filled)
 
 
-def enrich_event_from_openaire(event_id, throttle=None):
+def enrich_event_from_openaire(event_id, throttle=None, after_id=0, carry=None):
     """Async sweep: check a harvest event's DOI-bearing works against OpenAIRE.
 
     Enqueued by ``complete_harvest`` after every successful harvest (gated by
@@ -357,6 +475,19 @@ def enrich_event_from_openaire(event_id, throttle=None):
     match, an ``openaire_enrich`` event listing the offered-but-not-applied fields).
     Throttles between requests to respect OpenAIRE's rate limit (60/hour anonymous,
     7200/hour with a token). Returns the number of works whose fields were filled.
+
+    **Bounded chunks.** Because the throttle can make a full run take hours, the
+    sweep processes works only until a wall-clock budget
+    (``OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS``) elapses, then re-enqueues itself
+    with an ``after_id`` cursor (works are processed in ascending id order). This
+    keeps every Django-Q task short, so the cluster's stop signal is honoured
+    between chunks and no task outlives the cluster timeout. ``carry`` threads the
+    running totals across chunks.
+
+    **Circuit breaker.** After ``OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER`` *consecutive*
+    systemic OpenAIRE failures (:class:`OpenAireUnavailable` — auth / rate-limit /
+    server / connection), the sweep emails staff and raises so the task is marked
+    failed, instead of grinding through thousands of doomed requests.
 
     Note: the ``enrich_openaire`` backfill command deliberately keeps its
     missing-field filter — this full audit trail is only built going forward, as
@@ -371,25 +502,70 @@ def enrich_event_from_openaire(event_id, throttle=None):
     if throttle is None:
         throttle = settings.OPTIMAP_OPENAIRE_ENRICH_THROTTLE
 
-    qs = event.works.filter(doi__isnull=False).exclude(doi="").order_by("id")
-    total = qs.count()
-    logger.info("OpenAIRE sweep for event %s: %d work(s) with a DOI", event_id, total)
+    base_qs = event.works.filter(doi__isnull=False).exclude(doi="").order_by("id")
+    carry = carry or {}
+    total = carry.get("total")
+    if total is None:
+        total = base_qs.count()
+        logger.info("OpenAIRE sweep for event %s: %d work(s) with a DOI", event_id, total)
     if not total:
         return 0
 
+    updated = carry.get("updated", 0)
+    processed = carry.get("processed", 0)
+    deadline = time.monotonic() + settings.OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS
+    breaker = _SystemicFailureBreaker(settings.OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER)
     session = _openaire_session()
-    updated = 0
+    last_id = after_id
     try:
-        for i, work in enumerate(qs.iterator(chunk_size=50)):
+        for work in base_qs.filter(id__gt=after_id).iterator(chunk_size=50):
             try:
-                if enrich_work_from_openaire(work, session=session):
+                if enrich_work_from_openaire(work, session=session, raise_on_unavailable=True):
                     updated += 1
+                breaker.ok()
+            except OpenAireUnavailable as exc:
+                if breaker.systemic(exc):
+                    notify_openaire_abort(
+                        f"sweep for harvest event {event_id}", breaker, processed=processed, total=total
+                    )
+                    raise OpenAireUnavailable(
+                        f"OpenAIRE sweep for event {event_id} aborted after "
+                        f"{breaker.consecutive} consecutive systemic failures",
+                        status=exc.status,
+                    ) from exc
+                logger.warning("OpenAIRE sweep: systemic failure for work %s (%s): %s", work.id, work.doi, exc)
             except Exception as exc:
+                # Non-systemic per-work error: log, do not trip the breaker.
                 logger.warning("OpenAIRE enrich failed for work %s (%s): %s", work.id, work.doi, exc)
-            if i + 1 < total and throttle:
+                breaker.ok()
+            last_id = work.id
+            processed += 1
+            if time.monotonic() >= deadline:
+                break
+            if throttle:
                 time.sleep(throttle)
     finally:
         session.close()
+
+    if base_qs.filter(id__gt=last_id).exists():
+        from django_q.tasks import async_task
+
+        async_task(
+            "works.harvesting.openaire.enrich_event_from_openaire",
+            event_id,
+            throttle=throttle,
+            after_id=last_id,
+            carry={"total": total, "updated": updated, "processed": processed},
+            q_options=openaire_task_q_options(),
+        )
+        logger.info(
+            "OpenAIRE sweep for event %s: chunk done (%d/%d processed, id<=%s), continuation enqueued",
+            event_id,
+            processed,
+            total,
+            last_id,
+        )
+        return updated
 
     logger.info("OpenAIRE sweep for event %s done: %d/%d work(s) updated", event_id, updated, total)
     return updated
