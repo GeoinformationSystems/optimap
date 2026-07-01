@@ -13,10 +13,11 @@ from django.conf import settings
 from django.contrib.syndication.views import Feed
 from django.core.cache import cache
 from django.http import Http404
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from django.utils.feedgenerator import Atom1Feed, Rss201rev2Feed
 
-from .models import Collection, GlobalRegion, Source, Work
+from .models import Collection, Country, GlobalRegion, Source, Work
 from .utils.geometry import COORDINATE_PRECISION
 
 logger = logging.getLogger(__name__)
@@ -505,6 +506,48 @@ class CollectionGeoFeed(BaseCachedGeoFeed):
         return (
             Work.objects.filter(collections=obj, status="p")
             .exclude(geometry__isnull=True)
+            .order_by("-creationDate")[: settings.FEED_MAX_ITEMS]
+        )
+
+
+class CountryGeoFeed(BaseCachedGeoFeed):
+    """Feed filtered by country (issue #52)."""
+
+    def __init__(self, feed_type_variant="georss"):
+        self.feed_type_variant = feed_type_variant
+        super().__init__()
+
+    def __call__(self, request, *args, **kwargs):
+        country_slug = kwargs.get("country_slug", "")
+        if len(country_slug) == 2 and country_slug.isalpha():
+            country = Country.objects.real().filter(iso_code=country_slug.upper()).first()
+            if country is not None:
+                url_name = (
+                    "optimap:api-country-atom" if self.feed_type_variant == "atom" else "optimap:api-country-georss"
+                )
+                url = reverse(url_name, kwargs={"country_slug": country.slug})
+                qs = request.GET.urlencode()
+                return redirect(f"{url}?{qs}" if qs else url, permanent=True)
+        return super().__call__(request, *args, **kwargs)
+
+    def get_object(self, request, country_slug):
+        return get_object_or_404(Country.objects.real(), slug=country_slug)
+
+    def title(self, obj):
+        return f"OPTIMAP – {obj.name}"
+
+    def link(self, obj):
+        return obj.get_absolute_url()
+
+    def description(self, obj):
+        return f"Latest works in {obj.name}"
+
+    def items(self, obj):
+        return (
+            Work.objects.filter(countries=obj, status="p")
+            .exclude(geometry__isnull=True)
+            .exclude(url__isnull=True)
+            .exclude(url__exact="")
             .order_by("-creationDate")[: settings.FEED_MAX_ITEMS]
         )
 

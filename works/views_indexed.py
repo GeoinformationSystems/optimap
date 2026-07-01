@@ -252,6 +252,18 @@ def place_page(request, place_slug):
         # browser-cached /api/v1/countries/ data) so the page always shows a
         # map even when no works carry geometry.
         extra["facet_country_iso"] = country.iso_code
+        extra["country_feed_rss_url"] = reverse("optimap:api-country-georss", kwargs={"country_slug": country.slug})
+        extra["country_feed_atom_url"] = reverse("optimap:api-country-atom", kwargs={"country_slug": country.slug})
+        extra["country_download_geojson_url"] = reverse(
+            "optimap:download-country-geojson", kwargs={"country_slug": country.slug}
+        )
+        extra["country_download_gpkg_url"] = reverse(
+            "optimap:download-country-gpkg", kwargs={"country_slug": country.slug}
+        )
+        extra["country_download_csv_url"] = reverse(
+            "optimap:download-country-csv", kwargs={"country_slug": country.slug}
+        )
+        extra["country_name"] = country.name
     else:
         region = get_region_from_slug(place_slug)
         if region is None:

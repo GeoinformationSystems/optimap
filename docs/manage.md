@@ -1108,11 +1108,23 @@ When to clear which:
 
 Short, indexable URLs that list published works:
 
-- `/at/<place>/` — continent/ocean (`GlobalRegion`) or country (`Country`, by the `Work.countries` M2M).
+- `/at/<place>/` — continent/ocean (`GlobalRegion`) or country (`Country`, by the `Work.countries` M2M). Country pages show a **"Feeds & downloads"** card with links to the per-country feeds and downloads listed below.
 - `/during/<year>/` — works whose **temporal coverage** (`Work.timeperiod_*` data years) covers the year — *not* `publicationDate`.
 - `/on/<topic>/` — works tagged with an OpenAlex topic (`Work.topics`).
 - `/in/<source-slug>/` — the **source landing page**: work list + coverage panel (latest `SourceCoverageSnapshot`: coverage %, with-geometry/temporal/open-access rates, contributors, per-year chart) + known totals (`Source.statistics`) + per-source GeoRSS/Atom feeds (`/api/v1/feeds/source-<slug>.rss|.atom`).
 - `/browse/` — directory of all of the above with counts (also linked from the footer and `/pages/`).
+
+**Per-country feeds (issue #52):**
+
+| URL | Description |
+|-----|-------------|
+| `GET /api/v1/feeds/country-<slug>.rss` | GeoRSS feed of published works in the country. |
+| `GET /api/v1/feeds/country-<slug>.atom` | Atom feed of the same. |
+| `GET /api/v1/countries/<slug>/download/geojson/` | GeoJSON download of all published works in the country. |
+| `GET /api/v1/countries/<slug>/download/gpkg/` | GeoPackage download. |
+| `GET /api/v1/countries/<slug>/download/csv/` | CSV download (WKT geometry column). |
+
+All five endpoints accept a 2-letter ISO 3166-1 alpha-2 code (e.g. `DE`) and **301-redirect** to the canonical slug URL (e.g. `germany`). Use `?now` to bypass the cache (same as collection downloads). Continent and ocean pages do not have country-style feeds or downloads — they use the existing `/regions/continent/<slug>/` feed pages.
 
 **Index / overview pages** (in the burger menu, `/pages/`, and the XML sitemap):
 

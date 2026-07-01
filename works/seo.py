@@ -257,11 +257,13 @@ def _build_schema_org(work, request, canonical, image, author_records, keywords,
     if work.publicationDate:
         payload["datePublished"] = work.publicationDate.isoformat()
     if author_records:
+
         def _person(rec):
             p = {"@type": "Person", "name": rec["name"]}
             if rec.get("orcid"):
                 p["sameAs"] = f"https://orcid.org/{rec['orcid']}"
             return p
+
         payload["author"] = [_person(r) for r in author_records]
     if keywords:
         payload["keywords"] = list(keywords)

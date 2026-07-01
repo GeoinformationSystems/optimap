@@ -522,37 +522,12 @@
       {% endif %}
 
       {% if collection.is_published %}
-      <div class="card mt-5">
-        <div class="card-header">
-          <i class="fas fa-download"></i> Feeds &amp; downloads
-        </div>
-        <div class="card-body">
-          <p class="text-muted small mb-3">Subscribe to updates or download the published works in this collection as a dataset.</p>
-          <div class="row">
-            <div class="col-sm-6 mb-3">
-              <h6 class="text-uppercase text-muted small font-weight-bold">Feeds</h6>
-              <a href="{% url 'optimap:api-collection-georss' collection.identifier %}" class="btn btn-outline-secondary btn-sm d-block mb-2">
-                <i class="fas fa-rss"></i> GeoRSS feed
-              </a>
-              <a href="{% url 'optimap:api-collection-atom' collection.identifier %}" class="btn btn-outline-secondary btn-sm d-block">
-                <i class="fas fa-rss-square"></i> Atom feed
-              </a>
-            </div>
-            <div class="col-sm-6 mb-3">
-              <h6 class="text-uppercase text-muted small font-weight-bold">Downloads</h6>
-              <a href="{% url 'optimap:download-collection-geojson' collection.identifier %}" class="btn btn-outline-secondary btn-sm d-block mb-2">
-                <i class="fas fa-file-code"></i> GeoJSON
-              </a>
-              <a href="{% url 'optimap:download-collection-gpkg' collection.identifier %}" class="btn btn-outline-secondary btn-sm d-block mb-2">
-                <i class="fas fa-database"></i> GeoPackage
-              </a>
-              <a href="{% url 'optimap:download-collection-csv' collection.identifier %}" class="btn btn-outline-secondary btn-sm d-block">
-                <i class="fas fa-file-csv"></i> CSV
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
+      {% url 'optimap:api-collection-georss' collection.identifier as col_rss %}
+      {% url 'optimap:api-collection-atom' collection.identifier as col_atom %}
+      {% url 'optimap:download-collection-geojson' collection.identifier as col_geojson %}
+      {% url 'optimap:download-collection-gpkg' collection.identifier as col_gpkg %}
+      {% url 'optimap:download-collection-csv' collection.identifier as col_csv %}
+      {% include "partials/feeds_downloads_card.html" with feed_rss_url=col_rss feed_atom_url=col_atom download_geojson_url=col_geojson download_gpkg_url=col_gpkg download_csv_url=col_csv feeds_subject="this collection" only %}
       {% endif %}
 
       <div class="mt-4">

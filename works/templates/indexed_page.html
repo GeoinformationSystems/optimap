@@ -15,6 +15,10 @@
 <link rel="stylesheet" href="{% static 'css/leaflet.control.geocoder.css' %}" />
 <script src="{% static 'js/leaflet.control.geocoder.js' %}"></script>
 {% endif %}
+{% if country_feed_rss_url %}
+<link rel="alternate" type="application/rss+xml" title="{{ country_name }} – GeoRSS" href="{{ country_feed_rss_url }}">
+<link rel="alternate" type="application/atom+xml" title="{{ country_name }} – Atom" href="{{ country_feed_atom_url }}">
+{% endif %}
 {% endblock head %}
 
 {% block extra_meta %}
@@ -63,6 +67,10 @@
         <div class="alert alert-warning" role="alert">
           <i class="fas fa-exclamation-triangle"></i> No published works found here yet.
         </div>
+      {% endif %}
+
+      {% if country_feed_rss_url %}
+      {% include "partials/feeds_downloads_card.html" with feed_rss_url=country_feed_rss_url feed_atom_url=country_feed_atom_url download_geojson_url=country_download_geojson_url download_gpkg_url=country_download_gpkg_url download_csv_url=country_download_csv_url feeds_subject=country_name only %}
       {% endif %}
 
       <div class="mt-5 d-flex flex-wrap" style="gap: .5rem;">

@@ -25,12 +25,15 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.serializers import serialize
 from django.http import FileResponse, Http404, HttpResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
+
+from works.feeds import normalize_region_slug
 
 _DOWNLOAD_404 = OpenApiResponse(
     inline_serializer(
@@ -41,7 +44,7 @@ _DOWNLOAD_404 = OpenApiResponse(
 )
 from osgeo import ogr, osr
 
-from works.models import Collection, Work
+from works.models import Collection, Country, Work
 from works.tasks import (
     regenerate_csv_cache,
     regenerate_geojson_cache,
@@ -229,9 +232,13 @@ _COLLECTION_404 = OpenApiResponse(
     description="Collection not found or not published.",
 )
 
-
-def _collection_qs(collection):
-    return annotate_rounded_geometry(Work.objects.filter(collections=collection, status="p"))
+_COUNTRY_404 = OpenApiResponse(
+    inline_serializer(
+        name="CountryNotFoundResponse",
+        fields={"detail": drf_serializers.CharField()},
+    ),
+    description="Country not found.",
+)
 
 
 def _unwrap_geometry_collection(geom):
@@ -264,8 +271,8 @@ def _unwrap_geometry_collection(geom):
     return geom
 
 
-def _serialize_collection_geojson(collection):
-    """Return a GeoJSON FeatureCollection string for published works in *collection*,
+def _serialize_works_geojson(qs):
+    """Return a GeoJSON FeatureCollection string for the given queryset,
     with GeometryCollection wrappers unwrapped to primitive / Multi* types and
     coordinates capped at 5 decimal places (W3C SDW-BP 6).
 
@@ -276,7 +283,7 @@ def _serialize_collection_geojson(collection):
     entirely on this path (a gap in the original BP6 implementation); this
     also fixes that, for free, as a side effect of the DB-side migration.
     """
-    works_qs = _collection_qs(collection)
+    works_qs = annotate_rounded_geometry(qs)
     rounded_by_id = {w.pk: w._rounded_geojson for w in works_qs}
     raw = serialize("geojson", works_qs, geometry_field="geometry", srid=4326)
     data = json.loads(raw)
@@ -287,24 +294,37 @@ def _serialize_collection_geojson(collection):
     return json.dumps(data)
 
 
-def _generate_collection_converted_bytes(collection, ogr_fmt, layer_creation_options=None):
-    """Serialize collection works to a GeoJSON (with unwrapped geometries) then convert via ogr2ogr."""
+def _generate_converted_bytes(qs, label, ogr_fmt, layer_creation_options=None):
+    """Serialize *qs* to GeoJSON (with unwrapped geometries) then convert via ogr2ogr."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ext = ogr_fmt.lower() if ogr_fmt != "CSV" else "csv"
         geojson_path = os.path.join(tmpdir, "data.geojson")
         out_path = os.path.join(tmpdir, f"data.{ext}")
         with open(geojson_path, "w") as f:
-            f.write(_serialize_collection_geojson(collection))
+            f.write(_serialize_works_geojson(qs))
         cmd = ["ogr2ogr", "-f", ogr_fmt, out_path, geojson_path]
         for opt in layer_creation_options or []:
             cmd.extend(["-lco", opt])
         try:
             subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
         except subprocess.CalledProcessError as err:
-            logger.warning("ogr2ogr %s failed for collection %s: %s", ogr_fmt, collection.identifier, err.output)
+            logger.warning("ogr2ogr %s failed for %s: %s", ogr_fmt, label, err.output)
             return None
         with open(out_path, "rb") as f:
             return f.read()
+
+
+def _serialize_collection_geojson(collection):
+    return _serialize_works_geojson(Work.objects.filter(collections=collection, status="p"))
+
+
+def _generate_collection_converted_bytes(collection, ogr_fmt, layer_creation_options=None):
+    return _generate_converted_bytes(
+        Work.objects.filter(collections=collection, status="p"),
+        collection.identifier,
+        ogr_fmt,
+        layer_creation_options,
+    )
 
 
 @extend_schema(
@@ -391,4 +411,135 @@ def download_collection_csv(request, collection_slug):
         cache.set(cache_key, data, settings.FEED_CACHE_HOURS * 3600)
     response = HttpResponse(data, content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="optimap_collection_{collection_slug}.csv"'
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Per-country download endpoints (issue #52)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_country_slug(country_slug):
+    """Return (Country, is_iso_code).
+
+    A 2-letter ISO code (e.g. "DE") resolves to the country and signals the
+    caller to 301-redirect to the canonical slug URL; a canonical slug is
+    normalized (underscores→hyphens, lowercase) and returned directly.
+    """
+    normalized = normalize_region_slug(country_slug)
+    if len(normalized) == 2 and normalized.isalpha():
+        country = Country.objects.real().filter(iso_code=normalized.upper()).first()
+        return country, True  # caller must build the redirect URL
+    country = Country.objects.real().filter(slug=normalized).first()
+    return country, False
+
+
+@extend_schema(
+    summary="Download country works as GeoJSON",
+    description=(
+        "Returns a GeoJSON FeatureCollection of all published works linked to the country. "
+        "A 2-letter ISO 3166-1 alpha-2 code (e.g. `DE`) 301-redirects to the canonical slug URL. "
+        "Cached for `FEED_CACHE_HOURS` (default 24 h); pass `?now` to force refresh."
+    ),
+    tags=["Downloads"],
+    responses={
+        (200, "application/geo+json"): OpenApiTypes.BINARY,
+        301: OpenApiResponse(description="Redirect from ISO code to canonical slug URL."),
+        404: _COUNTRY_404,
+    },
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def download_country_geojson(request, country_slug):
+    country, is_iso = _resolve_country_slug(country_slug)
+    if country is None:
+        raise Http404("Country not found.")
+    if is_iso:
+        url = reverse("optimap:download-country-geojson", kwargs={"country_slug": country.slug})
+        qs = request.GET.urlencode()
+        return redirect(f"{url}?{qs}" if qs else url, permanent=True)
+    cache_key = f"download:country:{country_slug}:geojson"
+    force = request.GET.get("now") is not None
+    data = None if force else cache.get(cache_key)
+    if data is None:
+        data = _serialize_works_geojson(Work.objects.filter(countries=country, status="p"))
+        cache.set(cache_key, data, settings.FEED_CACHE_HOURS * 3600)
+    response = HttpResponse(data, content_type="application/geo+json")
+    response["Content-Disposition"] = f'attachment; filename="optimap_country_{country_slug}.geojson"'
+    return response
+
+
+@extend_schema(
+    summary="Download country works as GeoPackage",
+    description=(
+        "Returns an OGC GeoPackage of all published works linked to the country — single "
+        "layer `OGRGeoJSON`, EPSG:4326. A 2-letter ISO 3166-1 alpha-2 code 301-redirects to "
+        "the canonical slug URL. Cached for `FEED_CACHE_HOURS` (default 24 h); pass `?now` to force refresh."
+    ),
+    tags=["Downloads"],
+    responses={
+        (200, "application/geopackage+sqlite3"): OpenApiTypes.BINARY,
+        301: OpenApiResponse(description="Redirect from ISO code to canonical slug URL."),
+        404: _COUNTRY_404,
+    },
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def download_country_gpkg(request, country_slug):
+    country, is_iso = _resolve_country_slug(country_slug)
+    if country is None:
+        raise Http404("Country not found.")
+    if is_iso:
+        url = reverse("optimap:download-country-gpkg", kwargs={"country_slug": country.slug})
+        qs = request.GET.urlencode()
+        return redirect(f"{url}?{qs}" if qs else url, permanent=True)
+    cache_key = f"download:country:{country_slug}:gpkg"
+    force = request.GET.get("now") is not None
+    data = None if force else cache.get(cache_key)
+    if data is None:
+        data = _generate_converted_bytes(Work.objects.filter(countries=country, status="p"), country_slug, "GPKG")
+        if data is None:
+            raise Http404("GeoPackage generation failed.")
+        cache.set(cache_key, data, settings.FEED_CACHE_HOURS * 3600)
+    response = HttpResponse(data, content_type="application/geopackage+sqlite3")
+    response["Content-Disposition"] = f'attachment; filename="optimap_country_{country_slug}.gpkg"'
+    return response
+
+
+@extend_schema(
+    summary="Download country works as CSV",
+    description=(
+        "Returns a CSV of all published works linked to the country with geometries as a "
+        "WKT column. UTF-8, RFC 4180. A 2-letter ISO 3166-1 alpha-2 code 301-redirects to "
+        "the canonical slug URL. Cached for `FEED_CACHE_HOURS` (default 24 h); pass `?now` to force refresh."
+    ),
+    tags=["Downloads"],
+    responses={
+        (200, "text/csv"): OpenApiTypes.BINARY,
+        301: OpenApiResponse(description="Redirect from ISO code to canonical slug URL."),
+        404: _COUNTRY_404,
+    },
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def download_country_csv(request, country_slug):
+    country, is_iso = _resolve_country_slug(country_slug)
+    if country is None:
+        raise Http404("Country not found.")
+    if is_iso:
+        url = reverse("optimap:download-country-csv", kwargs={"country_slug": country.slug})
+        qs = request.GET.urlencode()
+        return redirect(f"{url}?{qs}" if qs else url, permanent=True)
+    cache_key = f"download:country:{country_slug}:csv"
+    force = request.GET.get("now") is not None
+    data = None if force else cache.get(cache_key)
+    if data is None:
+        data = _generate_converted_bytes(
+            Work.objects.filter(countries=country, status="p"), country_slug, "CSV", ["GEOMETRY=AS_WKT"]
+        )
+        if data is None:
+            raise Http404("CSV generation failed.")
+        cache.set(cache_key, data, settings.FEED_CACHE_HOURS * 3600)
+    response = HttpResponse(data, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="optimap_country_{country_slug}.csv"'
     return response

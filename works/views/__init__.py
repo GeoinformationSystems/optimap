@@ -34,6 +34,9 @@ from .data import (
     download_collection_csv,
     download_collection_geojson,
     download_collection_gpkg,
+    download_country_csv,
+    download_country_geojson,
+    download_country_gpkg,
     download_csv,
     download_geojson,
     download_geopackage,
@@ -81,4 +84,7 @@ __all__ = [
     "download_collection_geojson",
     "download_collection_gpkg",
     "download_collection_csv",
+    "download_country_geojson",
+    "download_country_gpkg",
+    "download_country_csv",
 ]

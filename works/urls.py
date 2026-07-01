@@ -22,7 +22,7 @@ from works import (
 from works.api import router as publications_router
 from works.bok import views as bok_views
 
-from .feeds import CollectionGeoFeed, GlobalGeoFeed, RegionalGeoFeed, SourceGeoFeed
+from .feeds import CollectionGeoFeed, CountryGeoFeed, GlobalGeoFeed, RegionalGeoFeed, SourceGeoFeed
 
 app_name = "optimap"
 
@@ -98,6 +98,17 @@ urlpatterns = [
         "api/v1/feeds/source-<slug:source_slug>.atom",
         SourceGeoFeed(feed_type_variant="atom"),
         name="api-source-atom",
+    ),
+    # API v1 Feed endpoints - Country feeds (issue #52)
+    path(
+        "api/v1/feeds/country-<slug:country_slug>.rss",
+        CountryGeoFeed(feed_type_variant="georss"),
+        name="api-country-georss",
+    ),
+    path(
+        "api/v1/feeds/country-<slug:country_slug>.atom",
+        CountryGeoFeed(feed_type_variant="atom"),
+        name="api-country-atom",
     ),
     # Region HTML pages (human-readable)
     path("regions/continent/<slug:continent_slug>/", views_regions.continent_feed_page, name="feed-continent-page"),
@@ -180,6 +191,22 @@ urlpatterns = [
         "api/v1/collections/<slug:collection_slug>/download/csv/",
         work_views.download_collection_csv,
         name="download-collection-csv",
+    ),
+    # Data downloads (per-country — issue #52)
+    path(
+        "api/v1/countries/<slug:country_slug>/download/geojson/",
+        work_views.download_country_geojson,
+        name="download-country-geojson",
+    ),
+    path(
+        "api/v1/countries/<slug:country_slug>/download/gpkg/",
+        work_views.download_country_gpkg,
+        name="download-country-gpkg",
+    ),
+    path(
+        "api/v1/countries/<slug:country_slug>/download/csv/",
+        work_views.download_country_csv,
+        name="download-country-csv",
     ),
     # Works
     path("works/", work_views.works_list, name="works"),

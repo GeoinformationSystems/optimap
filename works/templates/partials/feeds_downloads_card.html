@@ -1,0 +1,36 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# Shared "Feeds & downloads" card, used on collection and country pages.    #}
+{# Required context vars: feed_rss_url, feed_atom_url, download_geojson_url, #}
+{#   download_gpkg_url, download_csv_url, feeds_subject (e.g. "this country"). #}
+<div class="card mt-5">
+  <div class="card-header">
+    <i class="fas fa-download"></i> Feeds &amp; downloads
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">Subscribe to updates or download the published works in {{ feeds_subject }} as a dataset.</p>
+    <div class="row">
+      <div class="col-sm-6 mb-3">
+        <h6 class="text-uppercase text-muted small font-weight-bold">Feeds</h6>
+        <a href="{{ feed_rss_url }}" class="btn btn-outline-secondary btn-sm d-block mb-2">
+          <i class="fas fa-rss"></i> GeoRSS feed
+        </a>
+        <a href="{{ feed_atom_url }}" class="btn btn-outline-secondary btn-sm d-block">
+          <i class="fas fa-rss-square"></i> Atom feed
+        </a>
+      </div>
+      <div class="col-sm-6 mb-3">
+        <h6 class="text-uppercase text-muted small font-weight-bold">Downloads</h6>
+        <a href="{{ download_geojson_url }}" class="btn btn-outline-secondary btn-sm d-block mb-2">
+          <i class="fas fa-file-code"></i> GeoJSON
+        </a>
+        <a href="{{ download_gpkg_url }}" class="btn btn-outline-secondary btn-sm d-block mb-2">
+          <i class="fas fa-database"></i> GeoPackage
+        </a>
+        <a href="{{ download_csv_url }}" class="btn btn-outline-secondary btn-sm d-block">
+          <i class="fas fa-file-csv"></i> CSV
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
