@@ -27,6 +27,10 @@
           data-parent="#user_settings"
         >
           <div class="card-body">
+            <p class="small text-muted" style="white-space: normal; word-wrap: break-word; overflow-wrap: anywhere;">
+              Looking for regions, sources, or collections to get notified about? Manage
+              those on the <a href="{% url 'optimap:subscriptions' %}">Subscriptions page</a>.
+            </p>
             <form method="post" action="{% url 'optimap:usersettings' %}">
               {% csrf_token %}
               <input type="hidden" name="form" value="notifications" />

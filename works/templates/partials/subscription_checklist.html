@@ -1,0 +1,31 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{# Checkbox grid for one subscribable type. Expects: items, id_prefix, field_name, selected_ids, legend, checkbox_class, show_count. #}
+<fieldset class="region-section">
+  <legend class="region-section-title">{{ legend }}</legend>
+  <div class="region-grid">
+    {% for item in items %}
+    <div class="region-item">
+      <div class="custom-control custom-checkbox">
+        <input
+          type="checkbox"
+          class="custom-control-input {{ checkbox_class }}"
+          id="{{ id_prefix }}-{{ item.id }}"
+          name="{{ field_name }}"
+          value="{{ item.id }}"
+          {% if item.id in selected_ids %}checked{% endif %}>
+        <label class="custom-control-label" for="{{ id_prefix }}-{{ item.id }}">
+          {{ item.name }}{% if show_count %} <span class="text-muted">({{ item.published_work_count }})</span>{% endif %}
+        </label>
+      </div>
+      {% if item.get_absolute_url %}
+      <a class="item-icon-link" href="{{ item.get_absolute_url }}" target="_blank" rel="noopener"
+         title="Open {{ item.name }} landing page" aria-label="Open {{ item.name }} landing page">
+        <i class="fas fa-external-link-alt"></i>
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</fieldset>

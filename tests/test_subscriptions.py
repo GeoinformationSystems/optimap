@@ -13,7 +13,7 @@ from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from works.models import GlobalRegion, Subscription
+from works.models import Collection, GlobalRegion, Source, Subscription
 
 User = get_user_model()
 
@@ -65,6 +65,14 @@ class SubscriptionTests(TestCase):
             geom=test_multipolygon,
         )
 
+        self.source = Source.objects.create(name="Test Journal", url_field="https://example.com/test")
+        self.published_collection = Collection.objects.create(
+            identifier="published-collection", name="Published Collection", is_published=True
+        )
+        self.unpublished_collection = Collection.objects.create(
+            identifier="unpublished-collection", name="Unpublished Collection", is_published=False
+        )
+
     def test_subscription_page_requires_authentication(self):
         """Test that subscription page requires login"""
         response = self.client.get(reverse("optimap:subscriptions"))
@@ -86,6 +94,18 @@ class SubscriptionTests(TestCase):
         # Check that regions are properly grouped
         self.assertContains(response, "Continents")
         self.assertContains(response, "Oceans")
+
+    def test_subscription_page_shows_sources_and_published_collections_only(self):
+        """Sources and published collections are offered; unpublished collections are not."""
+        self.client.login(username="testuser", password="testpass123")
+        response = self.client.get(reverse("optimap:subscriptions"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sources")
+        self.assertContains(response, "Test Journal")
+        self.assertContains(response, "Collections")
+        self.assertContains(response, "Published Collection")
+        self.assertNotContains(response, "Unpublished Collection")
 
     def test_create_subscription_with_single_region(self):
         """Test creating a subscription with a single region"""
@@ -204,7 +224,7 @@ class SubscriptionTests(TestCase):
 
         response = self.client.get(reverse("optimap:subscriptions"))
 
-        self.assertContains(response, "No regions selected")
+        self.assertContains(response, "Nothing selected")
         self.assertContains(response, "text-warning")
 
     def test_invalid_region_id_ignored(self):
@@ -222,6 +242,55 @@ class SubscriptionTests(TestCase):
         subscription = Subscription.objects.get(user=self.user)
         self.assertEqual(subscription.regions.count(), 1)
         self.assertIn(self.africa, subscription.regions.all())
+
+    def test_create_subscription_with_source_and_collection(self):
+        """POST with sources/collections form fields sets the corresponding M2Ms."""
+        self.client.login(username="testuser", password="testpass123")
+
+        response = self.client.post(
+            reverse("optimap:addsubscriptions"),
+            {
+                "regions": [self.africa.id],
+                "sources": [self.source.id],
+                "collections": [self.published_collection.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        subscription = Subscription.objects.get(user=self.user)
+        self.assertIn(self.source, subscription.sources.all())
+        self.assertIn(self.published_collection, subscription.collections.all())
+
+    def test_unpublished_collection_rejected_even_if_posted(self):
+        """An unpublished collection id in the POST body is not accepted."""
+        self.client.login(username="testuser", password="testpass123")
+
+        self.client.post(
+            reverse("optimap:addsubscriptions"),
+            {"collections": [self.unpublished_collection.id]},
+        )
+
+        subscription = Subscription.objects.get(user=self.user)
+        self.assertEqual(subscription.collections.count(), 0)
+
+    def test_clear_sources_and_collections(self):
+        """Submitting without sources/collections fields clears them."""
+        self.client.login(username="testuser", password="testpass123")
+
+        self.client.post(
+            reverse("optimap:addsubscriptions"),
+            {"sources": [self.source.id], "collections": [self.published_collection.id]},
+        )
+        subscription = Subscription.objects.get(user=self.user)
+        self.assertEqual(subscription.sources.count(), 1)
+        self.assertEqual(subscription.collections.count(), 1)
+
+        self.client.post(reverse("optimap:addsubscriptions"), {})
+
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.sources.count(), 0)
+        self.assertEqual(subscription.collections.count(), 0)
 
     def test_subscription_persists_across_sessions(self):
         """Test that subscription settings persist across login sessions"""

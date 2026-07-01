@@ -39,7 +39,16 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
-from works.models import BlockedDomain, BlockedEmail, Contribution, GlobalRegion, Subscription, UserProfile
+from works.models import (
+    BlockedDomain,
+    BlockedEmail,
+    Collection,
+    Contribution,
+    GlobalRegion,
+    Source,
+    Subscription,
+    UserProfile,
+)
 from works.recognition import (
     RECOGNITION_TIERS,
     USERNAME_REGEX,
@@ -385,14 +394,30 @@ def user_subscriptions(request):
     continents = GlobalRegion.objects.filter(region_type=GlobalRegion.CONTINENT).order_by("name")
     oceans = GlobalRegion.objects.filter(region_type=GlobalRegion.OCEAN).order_by("name")
 
-    # Get user's currently selected regions
+    # Sources and published collections, alphabetical, annotated with their
+    # published-work count for display next to each checkbox.
+    published_work_count = Count("works", filter=Q(works__status="p"))
+    sources = Source.objects.annotate(published_work_count=published_work_count).order_by("name")
+    collections = (
+        Collection.objects.filter(is_published=True)
+        .annotate(published_work_count=published_work_count)
+        .order_by("name")
+    )
+
+    # Get user's currently selected regions/sources/collections
     selected_region_ids = list(subscription.regions.values_list("id", flat=True))
+    selected_source_ids = list(subscription.sources.values_list("id", flat=True))
+    selected_collection_ids = list(subscription.collections.values_list("id", flat=True))
 
     context = {
         "subscription": subscription,
         "continents": continents,
         "oceans": oceans,
+        "sources": sources,
+        "collections": collections,
         "selected_region_ids": selected_region_ids,
+        "selected_source_ids": selected_source_ids,
+        "selected_collection_ids": selected_collection_ids,
         "notification_interval": subscription.notification_interval,
     }
 
@@ -410,8 +435,10 @@ def add_subscriptions(request):
             user=user, defaults={"name": f"{user.username}_subscription"}
         )
 
-        # Get selected region IDs from the form
+        # Get selected region/source/collection IDs from the form
         selected_region_ids = request.POST.getlist("regions")
+        selected_source_ids = request.POST.getlist("sources")
+        selected_collection_ids = request.POST.getlist("collections")
 
         # Update the subscription's regions
         subscription.regions.clear()
@@ -419,12 +446,39 @@ def add_subscriptions(request):
             regions = GlobalRegion.objects.filter(id__in=selected_region_ids)
             subscription.regions.set(regions)
 
+        subscription.sources.clear()
+        if selected_source_ids:
+            sources = Source.objects.filter(id__in=selected_source_ids)
+            subscription.sources.set(sources)
+
+        subscription.collections.clear()
+        if selected_collection_ids:
+            collections = Collection.objects.filter(id__in=selected_collection_ids, is_published=True)
+            subscription.collections.set(collections)
+
         raw_interval = request.POST.get("notification_interval", "monthly")
         subscription.notification_interval = raw_interval if raw_interval in ("weekly", "monthly") else "monthly"
         subscription.save(update_fields=["notification_interval"])
 
-        logger.info("Updated subscription for user %s with %d regions", user.username, len(selected_region_ids))
-        messages.success(request, f"Subscription updated! Monitoring {len(selected_region_ids)} regions.")
+        # Report what was actually persisted, not the raw POSTed id lists — ids that
+        # don't exist (or, for collections, aren't published) are silently dropped
+        # by the .filter() calls above and shouldn't be claimed as "monitored".
+        region_count = subscription.regions.count()
+        source_count = subscription.sources.count()
+        collection_count = subscription.collections.count()
+
+        logger.info(
+            "Updated subscription for user %s with %d regions, %d sources, %d collections",
+            user.username,
+            region_count,
+            source_count,
+            collection_count,
+        )
+        messages.success(
+            request,
+            f"Subscription updated! Monitoring {region_count} regions, "
+            f"{source_count} sources, {collection_count} collections.",
+        )
 
         return HttpResponseRedirect("/subscriptions/")
 

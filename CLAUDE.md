@@ -38,7 +38,7 @@ Apply these steps to every task. Most are conditional — check whether the cond
     - `Work` - Core model with spatial (`GeometryCollectionField`) and temporal metadata
     - `Source` - OAI-PMH and RSS/Atom harvesting sources with metadata
     - `HarvestingEvent` - Tracks harvesting jobs
-    - `Subscription` - User subscriptions with regional filters (continents/oceans)
+    - `Subscription` - User subscriptions with regional filters (continents/oceans), sources, and collections
     - `GlobalRegion` - Predefined geographic regions (continents and oceans) for feeds and subscriptions
     - `CustomUser` - Extended Django user model
     - `UserProfile` - User preferences (notifications, etc.)

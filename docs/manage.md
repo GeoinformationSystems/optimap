@@ -1026,6 +1026,19 @@ The following sections are **suggested, not yet written**. They cover the rest o
 - Spatial + temporal filter fields on `Subscription`; how the subscription monthly email is composed.
 - The `schedule_subscription_email_task` and `schedule_monthly_email_task` Django-Q schedules (and the `Send Monthly Manuscript Email` admin action).
 - How to test the monthly email locally with the console email backend.
+- **Subscribing to sources and collections (issue #80).** In addition to regions
+  (continents/oceans), users can subscribe to any `Source` and any published
+  `Collection` on the single `/subscriptions/` page (`Subscription.sources` /
+  `Subscription.collections` M2M fields, editable per-user in the admin too).
+  There is still exactly one `Subscription` row per user and one notification-interval
+  setting for the whole thing — sources/collections are just two more checkbox
+  sections on the same form, saved through the existing `/addsubscriptions/` POST.
+  The digest email (`send_subscription_based_email` in `works/tasks.py`) renders a
+  section per type (🌍 Regions, 🗄️ Sources, 📚 Collections), each shown only when
+  that type has new published works for the user since `last_notified`; a work
+  matching more than one subscribed item (e.g. a region *and* a source) appears in
+  every matching section — sections are not deduplicated against each other.
+  Unpublished collections are never offered as subscription options.
 
 ### Manage the Recognition Board
 

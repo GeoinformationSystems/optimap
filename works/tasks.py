@@ -298,13 +298,72 @@ def send_monthly_email(trigger_source="manual", sent_by=None):
             )
 
 
+def _matching_publications(items, cutoff):
+    """Map each subscribed region/source/collection to its matching published
+    works added since cutoff (reading persisted Work relations, not
+    re-computing them). Drops items with no matches, and items with no
+    landing-page URL (e.g. a Source with a still-blank slug) so they can't be
+    counted in ``total_publications`` and then silently omitted from the
+    email body by ``_build_subscription_groups``."""
+    publications = {}
+    for item in items:
+        if not item.get_absolute_url():
+            continue
+        matching_pubs = list(item.works.filter(status="p", creationDate__gte=cutoff).order_by("-creationDate")[:50])
+        if matching_pubs:
+            publications[item] = matching_pubs
+    return publications
+
+
+def _build_subscription_group(obj, pubs, name, url, extra_fields=None):
+    """Shape a (region|source|collection, matching works) pair into the dict
+    consumed by subscription_regional.en.txt — same shape for every section
+    so the email template can loop over all three identically."""
+    pub_items = [
+        {
+            "title": (w.title[:100] + "..." if len(w.title) > 100 else w.title),
+            "link": _get_article_link(w),
+        }
+        for w in pubs[:10]
+    ]
+    group = {
+        "name": name,
+        "pub_count": len(pubs),
+        "url": url,
+        "pubs": pub_items,
+        "extra_count": max(0, len(pubs) - 10),
+    }
+    if extra_fields:
+        group.update(extra_fields)
+    return group
+
+
+def _build_subscription_groups(publications, extra_fields=None):
+    """Turn a {item: pubs} map (from ``_matching_publications``, which already
+    excludes items with no landing-page URL) into a name-sorted list of
+    email-template groups."""
+    return [
+        _build_subscription_group(
+            item,
+            pubs,
+            item.name,
+            f"{BASE_URL}{item.get_absolute_url()}",
+            extra_fields=extra_fields(item) if extra_fields else None,
+        )
+        for item, pubs in sorted(publications.items(), key=lambda pair: pair[0].name)
+    ]
+
+
 @log_scheduled_catchup
 def send_subscription_based_email(trigger_source="manual", sent_by=None, user_ids=None, interval=None):
     """
-    Send subscription-based notifications grouped by region.
+    Send subscription-based notifications grouped by region, source, and collection.
 
-    Publications are grouped by the regions the user has subscribed to.
-    Each region group includes a link to the region's landing page.
+    Publications are grouped by the regions/sources/collections the user has
+    subscribed to. Each group includes a link to that item's landing page.
+    Works may appear in more than one section (e.g. a work matching both a
+    subscribed region and a subscribed source) — sections are not deduplicated
+    against each other.
 
     ``interval`` — when given ('weekly' or 'monthly'), only processes subscriptions
     whose ``notification_interval`` matches. Pass ``None`` (the default, used for
@@ -316,7 +375,9 @@ def send_subscription_based_email(trigger_source="manual", sent_by=None, user_id
     weekly, 31 days for monthly, 31 days when interval is None).
     ``last_notified`` is updated only after a successful send.
     """
-    query = Subscription.objects.filter(subscribed=True, user__isnull=False).prefetch_related("regions")
+    query = Subscription.objects.filter(subscribed=True, user__isnull=False).prefetch_related(
+        "regions", "sources", "collections"
+    )
     if user_ids:
         query = query.filter(user__id__in=user_ids)
     if interval is not None:
@@ -328,8 +389,13 @@ def send_subscription_based_email(trigger_source="manual", sent_by=None, user_id
         user_email = subscription.user.email
 
         subscribed_regions = list(subscription.regions.all())
-        if not subscribed_regions:
-            logger.info(f"Skipping subscription for {user_email} - no regions selected")
+        subscribed_sources = list(subscription.sources.all())
+        # Re-check is_published here (not just at subscribe-time in add_subscriptions):
+        # a collection can be unpublished after a user already subscribed to it, or
+        # be added directly via the admin without going through that guard.
+        subscribed_collections = list(subscription.collections.filter(is_published=True))
+        if not (subscribed_regions or subscribed_sources or subscribed_collections):
+            logger.info(f"Skipping subscription for {user_email} - no regions/sources/collections selected")
             continue
 
         cutoff = (
@@ -338,24 +404,18 @@ def send_subscription_based_email(trigger_source="manual", sent_by=None, user_id
             else (timezone.now() - timedelta(days=fallback_days))
         )
 
-        region_publications = defaultdict(list)
-        total_publications = 0
+        # Read the persisted Work.regions M2M (populated by the
+        # assign_work_regions signal / backfill_work_regions sweep) rather
+        # than re-intersecting every published work's geometry here.
+        region_publications = _matching_publications(subscribed_regions, cutoff)
+        source_publications = _matching_publications(subscribed_sources, cutoff)
+        collection_publications = _matching_publications(subscribed_collections, cutoff)
 
-        for region in subscribed_regions:
-            # Read the persisted Work.regions M2M (populated by the
-            # assign_work_regions signal / backfill_work_regions sweep) rather
-            # than re-intersecting every published work's geometry here.
-            matching_pubs = list(
-                region.works.filter(
-                    status="p",
-                    creationDate__gte=cutoff,
-                ).order_by("-creationDate")[:50]
-            )
-
-            if matching_pubs:
-                region_publications[region] = matching_pubs
-                total_publications += len(matching_pubs)
-
+        total_publications = sum(
+            len(pubs)
+            for publications in (region_publications, source_publications, collection_publications)
+            for pubs in publications.values()
+        )
         if total_publications == 0:
             logger.info(f"Skipping subscription for {user_email} - no new publications since {cutoff}")
             continue
@@ -363,27 +423,11 @@ def send_subscription_based_email(trigger_source="manual", sent_by=None, user_id
         unsubscribe_all = f"{BASE_URL}{reverse('optimap:unsubscribe')}?all=true"
         manage_subscriptions = f"{BASE_URL}{reverse('optimap:subscriptions')}"
 
-        region_groups = []
-        for region in sorted(region_publications.keys(), key=lambda r: r.name):
-            pubs = region_publications[region]
-            region_url = f"{BASE_URL}{region.get_absolute_url()}"
-            pub_items = [
-                {
-                    "title": (w.title[:100] + "..." if len(w.title) > 100 else w.title),
-                    "link": _get_article_link(w),
-                }
-                for w in pubs[:10]
-            ]
-            region_groups.append(
-                {
-                    "name": region.name,
-                    "region_type": region.get_region_type_display(),
-                    "pub_count": len(pubs),
-                    "region_url": region_url,
-                    "pubs": pub_items,
-                    "extra_count": max(0, len(pubs) - 10),
-                }
-            )
+        region_groups = _build_subscription_groups(
+            region_publications, extra_fields=lambda r: {"region_type": r.get_region_type_display()}
+        )
+        source_groups = _build_subscription_groups(source_publications)
+        collection_groups = _build_subscription_groups(collection_publications)
 
         subject, content = render_email(
             "email/subscription_regional.en.txt",
@@ -391,6 +435,8 @@ def send_subscription_based_email(trigger_source="manual", sent_by=None, user_id
                 "total_publications": total_publications,
                 "username": subscription.user.username,
                 "region_groups": region_groups,
+                "source_groups": source_groups,
+                "collection_groups": collection_groups,
                 "manage_subscriptions": manage_subscriptions,
                 "unsubscribe_all": unsubscribe_all,
                 "base_url": BASE_URL,
@@ -404,7 +450,9 @@ def send_subscription_based_email(trigger_source="manual", sent_by=None, user_id
                 user_email, subject, content, sent_by=sent_by, trigger_source=trigger_source, status="success"
             )
             logger.info(
-                f"Sent regional subscription email to {user_email} with {total_publications} publications across {len(region_publications)} regions"
+                f"Sent subscription email to {user_email} with {total_publications} publications across "
+                f"{len(region_publications)} regions, {len(source_publications)} sources, "
+                f"{len(collection_publications)} collections"
             )
             subscription.last_notified = timezone.now()
             subscription.save(update_fields=["last_notified"])

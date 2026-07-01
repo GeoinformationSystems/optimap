@@ -17,7 +17,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from tests.region_linking import link_all_work_regions
-from works.models import EmailLog, GlobalRegion, Source, Subscription, Work
+from works.models import Collection, EmailLog, GlobalRegion, Source, Subscription, Work
 from works.tasks import send_subscription_based_email
 
 User = get_user_model()
@@ -98,6 +98,18 @@ class SubscriptionEmailTests(TestCase):
             source=cls.source,
             geometry=GeometryCollection(Point(45, 45)),
         )
+        cls.collection = Collection.objects.create(
+            identifier="test-collection",
+            name="Test Collection",
+            is_published=True,
+        )
+        cls.pub_collection = Work.objects.create(
+            title="Collected Work on Wetlands",
+            doi="10.1234/collection.2024",
+            status="p",
+            source=cls.source,
+        )
+        cls.pub_collection.collections.add(cls.collection)
 
     def test_globalregion_get_slug(self):
         """Test that GlobalRegion generates correct slugs"""
@@ -218,7 +230,7 @@ class SubscriptionEmailTests(TestCase):
         content = mock_email.call_args[0][1]
 
         # Check for management links
-        self.assertIn("Manage your regional subscriptions", content)
+        self.assertIn("Manage your subscriptions", content)
         self.assertIn("/subscriptions", content)
         self.assertIn("Unsubscribe from all notifications", content)
 
@@ -462,3 +474,75 @@ class SubscriptionEmailTests(TestCase):
         content = mock_email.call_args[0][1]
         self.assertIn("African Study on Climate Change", content)
         self.assertNotIn("Old African Study", content)
+
+    # ------------------------------------------------------------------
+    # Source / collection subscriptions (issue #80)
+    # ------------------------------------------------------------------
+
+    @patch("works.tasks.EmailMessage")
+    def test_email_sent_for_subscribed_source(self, mock_email):
+        """Test that emails are sent when publications match a subscribed source."""
+        subscription = Subscription.objects.create(user=self.user, name="test_subscription", subscribed=True)
+        subscription.sources.add(self.source)
+
+        self._send(trigger_source="test")
+
+        self.assertTrue(mock_email.called)
+        content = mock_email.call_args[0][1]
+        self.assertIn("🗄️ Sources", content)
+        self.assertIn("Test Journal", content)
+        self.assertIn("African Study on Climate Change", content)
+
+    @patch("works.tasks.EmailMessage")
+    def test_email_sent_for_subscribed_collection(self, mock_email):
+        """Test that emails are sent when publications match a subscribed collection."""
+        subscription = Subscription.objects.create(user=self.user, name="test_subscription", subscribed=True)
+        subscription.collections.add(self.collection)
+
+        self._send(trigger_source="test")
+
+        self.assertTrue(mock_email.called)
+        content = mock_email.call_args[0][1]
+        self.assertIn("📚 Collections", content)
+        self.assertIn("Test Collection", content)
+        self.assertIn("Collected Work on Wetlands", content)
+
+    @patch("works.tasks.EmailMessage")
+    def test_no_source_or_collection_section_when_not_subscribed(self, mock_email):
+        """Sections only render for the types the user actually subscribed to."""
+        subscription = Subscription.objects.create(user=self.user, name="test_subscription", subscribed=True)
+        subscription.regions.add(self.africa)
+
+        self._send(trigger_source="test")
+
+        self.assertTrue(mock_email.called)
+        content = mock_email.call_args[0][1]
+        self.assertNotIn("🗄️ Sources", content)
+        self.assertNotIn("📚 Collections", content)
+
+    @patch("works.tasks.EmailMessage")
+    def test_work_appears_in_both_region_and_source_sections(self, mock_email):
+        """A work matching both a subscribed region and a subscribed source appears
+        in both sections — sections are not deduplicated against each other."""
+        subscription = Subscription.objects.create(user=self.user, name="test_subscription", subscribed=True)
+        subscription.regions.add(self.africa)
+        subscription.sources.add(self.source)
+
+        self._send(trigger_source="test")
+
+        content = mock_email.call_args[0][1]
+        self.assertEqual(content.count("African Study on Climate Change"), 2)
+
+    def test_last_notified_advances_for_source_only_subscription(self):
+        """last_notified is updated after a successful send driven purely by a
+        subscribed source (no regions/collections)."""
+        subscription = Subscription.objects.create(user=self.user, name="test_subscription", subscribed=True)
+        subscription.sources.add(self.source)
+        self.assertIsNone(subscription.last_notified)
+
+        with patch("works.tasks.EmailMessage") as mock_email:
+            mock_email.return_value.send.return_value = None
+            self._send(trigger_source="test")
+
+        subscription.refresh_from_db()
+        self.assertIsNotNone(subscription.last_notified)

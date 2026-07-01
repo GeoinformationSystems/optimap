@@ -1,21 +1,48 @@
-[OPTIMAP] 🌍 {{ total_publications }} new publications in your subscribed regions
+[OPTIMAP] 🔔 {{ total_publications }} new publications in your subscriptions
 
 Dear {{ username }},
 
-You have {{ total_publications }} new work(s) in your subscribed regions:
+You have {{ total_publications }} new work(s) in your subscriptions:
+
+{% if region_groups %}🌍 Regions
+───────────────────────────────────────
 
 {% for group in region_groups %}📍 {{ group.name }} ({{ group.region_type }}) - {{ group.pub_count }} work(s)
-   View all publications in this region: {{ group.region_url }}
+   View all publications in this region: {{ group.url }}
 
 {% for pub in group.pubs %}   • {{ pub.title }}
      {{ pub.link }}
 
 {% endfor %}{% if group.extra_count %}   ... and {{ group.extra_count }} more in {{ group.name }}
-   View all: {{ group.region_url }}
+   View all: {{ group.url }}
 
-{% endif %}{% endfor %}───────────────────────────────────────
+{% endif %}{% endfor %}{% endif %}{% if source_groups %}🗄️ Sources
+───────────────────────────────────────
 
-Manage your regional subscriptions:
+{% for group in source_groups %}📍 {{ group.name }} - {{ group.pub_count }} work(s)
+   View all publications from this source: {{ group.url }}
+
+{% for pub in group.pubs %}   • {{ pub.title }}
+     {{ pub.link }}
+
+{% endfor %}{% if group.extra_count %}   ... and {{ group.extra_count }} more from {{ group.name }}
+   View all: {{ group.url }}
+
+{% endif %}{% endfor %}{% endif %}{% if collection_groups %}📚 Collections
+───────────────────────────────────────
+
+{% for group in collection_groups %}📍 {{ group.name }} - {{ group.pub_count }} work(s)
+   View all publications in this collection: {{ group.url }}
+
+{% for pub in group.pubs %}   • {{ pub.title }}
+     {{ pub.link }}
+
+{% endfor %}{% if group.extra_count %}   ... and {{ group.extra_count }} more in {{ group.name }}
+   View all: {{ group.url }}
+
+{% endif %}{% endfor %}{% endif %}───────────────────────────────────────
+
+Manage your subscriptions:
   {{ manage_subscriptions }}
 
 Unsubscribe from all notifications:

@@ -38,8 +38,9 @@
     color: #6c757d;
     font-size: 15px;
     line-height: 1.6;
+    white-space: normal;
     word-wrap: break-word;
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
   }
 
   /* Combined info box */
@@ -113,14 +114,14 @@
 
   /* Region sections */
   .region-section {
-    margin-bottom: 30px;
+    margin-bottom: 20px;
   }
 
   .region-section-title {
     font-size: 18px;
     font-weight: 600;
     color: #2c3e50;
-    margin-bottom: 15px;
+    margin-bottom: 10px;
     padding-bottom: 8px;
     border-bottom: 2px solid #007bff;
     display: inline-block;
@@ -129,15 +130,19 @@
   .region-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
+    gap: 8px;
   }
 
   .region-item {
     background: #ffffff;
     border: 1px solid #e9ecef;
     border-radius: 6px;
-    padding: 12px 15px;
+    padding: 8px 10px;
     transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
   }
 
   .region-item:hover {
@@ -147,18 +152,32 @@
 
   .region-item .custom-checkbox {
     margin-bottom: 0;
+    flex: 1;
+    min-width: 0;
   }
 
   .region-item label {
-    font-size: 14px;
+    font-size: 13px;
     color: #495057;
     cursor: pointer;
     font-weight: 500;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
   }
 
   .region-item input[type="checkbox"]:checked + label {
     color: #007bff;
     font-weight: 600;
+  }
+
+  .region-item .item-icon-link {
+    flex-shrink: 0;
+    color: #6c757d;
+  }
+
+  .region-item .item-icon-link:hover {
+    color: #007bff;
   }
 
   /* Action buttons */
@@ -237,10 +256,10 @@
 <div class="subscriptions-container">
   <!-- Page Header -->
   <div class="subscriptions-header">
-    <h1>Regional Subscriptions</h1>
+    <h1>Subscriptions</h1>
     <p class="subtitle">
-      Get notified when new works are added from specific continents and oceans.
-      Select the regions you're interested in to receive email notifications.
+      Get notified when new works are added from specific continents/oceans, sources,
+      or collections. Select the ones you're interested in to receive email notifications.
     </p>
   </div>
 
@@ -268,7 +287,7 @@
 
     <div class="info-section">
       <div class="info-icon">
-        {% if selected_region_ids %}
+        {% if selected_region_ids or selected_source_ids or selected_collection_ids %}
         <i class="fas fa-check-circle fa-2x text-success"></i>
         {% else %}
         <i class="fas fa-exclamation-circle fa-2x text-warning"></i>
@@ -276,15 +295,17 @@
       </div>
       <div class="info-content">
         <h6 class="mb-1"><strong>Current Status</strong></h6>
-        {% if selected_region_ids %}
+        {% if selected_region_ids or selected_source_ids or selected_collection_ids %}
         <p class="mb-0 small">
-          Currently monitoring <strong>{{ selected_region_ids|length }} region{{ selected_region_ids|length|pluralize }}</strong>.
-          You'll receive email notifications when new works are added to these regions.
+          Currently monitoring <strong>{{ selected_region_ids|length }} region{{ selected_region_ids|length|pluralize }}</strong>,
+          <strong>{{ selected_source_ids|length }} source{{ selected_source_ids|length|pluralize }}</strong>, and
+          <strong>{{ selected_collection_ids|length }} collection{{ selected_collection_ids|length|pluralize }}</strong>.
+          You'll receive email notifications when new works are added there.
         </p>
         {% else %}
         <p class="mb-0 small">
-          <strong>No regions selected.</strong> Select one or more regions below to start
-          receiving notifications about new works.
+          <strong>Nothing selected.</strong> Select one or more regions, sources, or collections
+          below to start receiving notifications about new works.
         </p>
         {% endif %}
       </div>
@@ -326,50 +347,16 @@
       </div>
 
       <!-- Continents Section -->
-      <fieldset class="region-section">
-        <legend class="region-section-title">Continents</legend>
-        <div class="region-grid">
-          {% for continent in continents %}
-          <div class="region-item">
-            <div class="custom-control custom-checkbox">
-              <input
-                type="checkbox"
-                class="custom-control-input region-checkbox"
-                id="region-{{ continent.id }}"
-                name="regions"
-                value="{{ continent.id }}"
-                {% if continent.id in selected_region_ids %}checked{% endif %}>
-              <label class="custom-control-label" for="region-{{ continent.id }}">
-                {{ continent.name }}
-              </label>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </fieldset>
+      {% include "partials/subscription_checklist.html" with items=continents id_prefix="region" field_name="regions" selected_ids=selected_region_ids legend="Continents" checkbox_class="region-checkbox" show_count=False %}
 
       <!-- Oceans Section -->
-      <fieldset class="region-section">
-        <legend class="region-section-title">Oceans</legend>
-        <div class="region-grid">
-          {% for ocean in oceans %}
-          <div class="region-item">
-            <div class="custom-control custom-checkbox">
-              <input
-                type="checkbox"
-                class="custom-control-input region-checkbox"
-                id="region-{{ ocean.id }}"
-                name="regions"
-                value="{{ ocean.id }}"
-                {% if ocean.id in selected_region_ids %}checked{% endif %}>
-              <label class="custom-control-label" for="region-{{ ocean.id }}">
-                {{ ocean.name }}
-              </label>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </fieldset>
+      {% include "partials/subscription_checklist.html" with items=oceans id_prefix="region" field_name="regions" selected_ids=selected_region_ids legend="Oceans" checkbox_class="region-checkbox" show_count=False %}
+
+      <!-- Sources Section -->
+      {% include "partials/subscription_checklist.html" with items=sources id_prefix="source" field_name="sources" selected_ids=selected_source_ids legend="Sources" checkbox_class="sub-checkbox" show_count=True %}
+
+      <!-- Collections Section -->
+      {% include "partials/subscription_checklist.html" with items=collections id_prefix="collection" field_name="collections" selected_ids=selected_collection_ids legend="Collections" checkbox_class="sub-checkbox" show_count=True %}
 
       <!-- Action Buttons -->
       <div class="action-buttons">
@@ -389,6 +376,9 @@
   document.addEventListener('DOMContentLoaded', function() {
     const selectAllCheckbox = document.getElementById('select-all');
     const regionCheckboxes = document.querySelectorAll('.region-checkbox');
+    // Sources/collections aren't covered by "Select All Regions", but must still
+    // enable the Save button when their checked state changes.
+    const changeTrackedCheckboxes = document.querySelectorAll('.region-checkbox, .sub-checkbox');
     const intervalRadios = document.querySelectorAll('.interval-radio');
     const saveButton = document.getElementById('save-button');
     const saveButtonWrapper = document.getElementById('save-button-wrapper');
@@ -398,15 +388,16 @@
     const initialState = getFormState();
     const initialInterval = getSelectedInterval();
 
-    // Get current form state as a Set of checked region IDs
+    // Get current form state as a Set of checked region/source/collection IDs
+    // (prefixed by name so identical numeric IDs across types don't collide)
     function getFormState() {
-      const checkedRegions = new Set();
-      regionCheckboxes.forEach(function(checkbox) {
+      const checked = new Set();
+      changeTrackedCheckboxes.forEach(function(checkbox) {
         if (checkbox.checked) {
-          checkedRegions.add(checkbox.value);
+          checked.add(checkbox.name + ':' + checkbox.value);
         }
       });
-      return checkedRegions;
+      return checked;
     }
 
     function getSelectedInterval() {
@@ -491,6 +482,11 @@
     // Handle individual region checkboxes
     regionCheckboxes.forEach(function(checkbox) {
       checkbox.addEventListener('change', updateSelectAllState);
+    });
+
+    // Sources/collections checkboxes only affect the Save button, not "Select All"
+    document.querySelectorAll('.sub-checkbox').forEach(function(checkbox) {
+      checkbox.addEventListener('change', updateSaveButtonState);
     });
 
     // Handle interval radio buttons

@@ -91,7 +91,7 @@ class LoginRedirectTests(TestCase):
 
         # Should return 200 OK
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Regional Subscriptions")
+        self.assertContains(response, "Subscriptions")
 
     def test_login_form_preserves_next_parameter(self):
         """Test that login form includes next parameter as hidden field"""
