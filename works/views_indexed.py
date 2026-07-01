@@ -309,7 +309,11 @@ def topic_page(request, topic_slug):
     topic = topic_slug_map().get(topic_slug)
     if topic is None:
         raise Http404(f"Topic not found: {topic_slug}")
-    works = Work.objects.filter(status="p", topics__contains=[topic]).order_by("-creationDate", "-id")
+    works = annotate_rounded_geometry(
+        Work.objects.filter(status="p", topics__contains=[topic])
+        .select_related("source")
+        .order_by("-creationDate", "-id")
+    )
     page_url = reverse("optimap:on-topic", kwargs={"topic_slug": topic_slug})
     return _render_facet(
         request,
@@ -319,6 +323,8 @@ def topic_page(request, topic_slug):
         title=f"{topic} — works on OPTIMAP",
         description=f"Published research works on the topic {topic}.",
         works=works,
+        with_map=True,
+        map_cache_key=f"facet_map_all:topic:{topic_slug}",
     )
 
 
