@@ -860,12 +860,16 @@ Both paths use **fill-if-empty**: if a work already has `Work.author_links`, a s
 
 ```bash
 python manage.py backfill_author_orcids --limit 500 --dry-run   # preview
-python manage.py backfill_author_orcids --limit 500              # link via OpenAlex (default)
-python manage.py backfill_author_orcids --source openaire        # link via OpenAIRE
+python manage.py backfill_author_orcids --limit 500              # OpenAlex + OpenAIRE supplement (default)
+python manage.py backfill_author_orcids --source openalex        # OpenAlex only
+python manage.py backfill_author_orcids --source openaire        # OpenAIRE only
 python manage.py backfill_author_orcids --force                  # rebuild even if links exist
+python manage.py backfill_author_orcids --async                  # background (needs qcluster)
 ```
 
-`--source` accepts `openalex` (default; re-fetches `authorships` from the OpenAlex works API by `openalex_id`) or `openaire` (re-uses the stored OpenAIRE record via `fetch_openaire_record`). Only works that have the matching external id are processed. `--throttle` (default 0.1 s) controls the per-work delay.
+`--source` accepts `both` (default; OpenAlex first, then an OpenAIRE supplement pass that adds any ORCID not yet linked without overwriting), `openalex` (re-fetches `authorships` from the OpenAlex works API by `openalex_id`), or `openaire` (re-uses the stored OpenAIRE record via `fetch_openaire_record`). Only works that have the matching external id are processed. `--throttle` (default `OPTIMAP_ORCID_BACKFILL_THROTTLE`, 0.1 s) controls the per-work delay.
+
+`--async` enqueues the backfill as a single Django-Q task (`works.tasks.backfill_author_orcids_task`) instead of running it in-process. Like the [OpenAIRE backfill](#openaire-enrichment), it runs in **bounded chunks**: each task processes works until a wall-clock budget (`OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS`, default 8 min, below the cluster timeout) elapses, then re-enqueues a continuation with an id-cursor — so the cluster stop signal is honoured between chunks. After `OPTIMAP_ORCID_BACKFILL_ABORT_AFTER` (default 5) **consecutive** systemic upstream failures (HTTP 401/403/408/429, any 5xx, or a connection/timeout — "OpenAlex/OpenAIRE is refusing us") the run emails active staff and fails the task instead of grinding through thousands of doomed requests. Requires a running `qcluster`; the command prints the task id and its humanized admin name.
 
 Every link written is recorded in `Work.provenance.metadata_sources["author_orcids"]` and an `author_link` event (see [Work provenance](#work-provenance)).
 

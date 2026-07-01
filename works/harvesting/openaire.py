@@ -133,6 +133,7 @@ def notify_openaire_abort(context, breaker, *, processed, total, trigger_source=
             "error": str(last_error),
             "processed": processed,
             "total": total,
+            "base_url": settings.BASE_URL,
         },
     )
     for recipient in recipients:

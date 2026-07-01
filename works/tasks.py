@@ -1153,6 +1153,325 @@ def enrich_openaire_backfill(
 
 
 # -----------------------------------------------------------------------------
+# Author ORCID backfill (backfill_author_orcids command; sync + --async chunks).
+# -----------------------------------------------------------------------------
+
+# HTTP statuses that mean "upstream refused / cannot serve us" (plus any 5xx),
+# as opposed to 404 / empty result which mean "not found for this work".
+_ORCID_SYSTEMIC_STATUSES = frozenset({401, 403, 408, 429})
+
+
+class _UpstreamUnavailable(RuntimeError):
+    """A *systemic* upstream (OpenAlex/OpenAIRE) failure, carrying the HTTP status.
+
+    Distinguishes "the API is refusing us" (rate-limiting, expired token, 5xx,
+    connection error) from "this work simply has no record there". Used to trip
+    the shared :class:`~works.harvesting.openaire._SystemicFailureBreaker`.
+    """
+
+    def __init__(self, message, *, status=None):
+        super().__init__(message)
+        self.status = status
+
+
+def _openalex_systemic(exc):
+    """Classify an OpenAlex request failure. Returns ``(is_systemic, status)``.
+
+    A missing work (HTTP 404) is a per-work outcome, not a systemic failure; a
+    401/403/408/429, any 5xx, or a connection/timeout (no response) means OpenAlex
+    is refusing or unable to answer us and should trip the circuit breaker.
+    """
+    resp = getattr(exc, "response", None)
+    status = getattr(resp, "status_code", None)
+    if status is None:
+        return True, None
+    return (status in _ORCID_SYSTEMIC_STATUSES or status >= 500), status
+
+
+def notify_backfill_abort(context, breaker, *, processed, total, trigger_source="manual"):
+    """Email active staff (and log ERROR) that an author ORCID backfill aborted.
+
+    Mirrors :func:`works.harvesting.openaire.notify_openaire_abort` but for the
+    mixed OpenAlex/OpenAIRE ORCID backfill, using a source-neutral template.
+    """
+    last_error = breaker.last_error
+    status = getattr(last_error, "status", None)
+    logger.error(
+        "Author ORCID backfill (%s) aborted after %d consecutive systemic failures (HTTP %s): %s",
+        context,
+        breaker.consecutive,
+        status if status is not None else "connection error",
+        last_error,
+    )
+
+    User = get_user_model()
+    recipients = list(
+        User.objects.filter(is_staff=True, is_active=True).exclude(email="").values_list("email", flat=True)
+    )
+    if not recipients:
+        logger.warning("notify_backfill_abort: no staff emails configured; alert not sent.")
+        return
+
+    subject, body = render_email(
+        "email/author_orcid_backfill_aborted.en.txt",
+        {
+            "context": context,
+            "consecutive": breaker.consecutive,
+            "status": status if status is not None else "connection error",
+            "error": str(last_error),
+            "processed": processed,
+            "total": total,
+        },
+    )
+    for recipient in recipients:
+        try:
+            send_mail(subject, body, settings.EMAIL_HOST_USER, [recipient], fail_silently=False)
+            EmailLog.log_email(recipient, subject, body, trigger_source=trigger_source, status="success")
+        except Exception as ex:  # noqa: BLE001
+            logger.exception("Failed to send ORCID backfill abort alert to %s.", recipient)
+            EmailLog.log_email(
+                recipient, subject, body, trigger_source=trigger_source, status="failed", error_message=str(ex)
+            )
+
+
+def backfill_author_orcids_task(
+    source="both",
+    limit=None,
+    force=False,
+    dry_run=False,
+    throttle=None,
+    on_progress=None,
+    chunked=False,
+    after_id=0,
+    carry=None,
+):
+    """Backfill ``Work.author_links`` with author ORCIDs from OpenAlex and/or OpenAIRE.
+
+    Shared core for the ``backfill_author_orcids`` management command: runs
+    synchronously when called directly (command's sync path, ``chunked=False`` —
+    interruptible with Ctrl-C) and as Django-Q tasks when enqueued with ``--async``
+    (``chunked=True``). Mirrors the OpenAIRE backfill chunk/abort machinery.
+
+    ``source`` is ``openalex`` / ``openaire`` / ``both`` (default): ``both`` links
+    OpenAlex authors first, then runs an OpenAIRE *supplement* pass that adds any
+    ORCID not yet linked (recording rank-position conflicts in provenance) without
+    overwriting existing links. All linking is fill-if-empty unless ``force``.
+
+    When ``chunked``, the task processes works only until a wall-clock budget
+    (``OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS``) elapses, then re-enqueues itself with
+    an ``after_id`` cursor and the running ``carry`` totals — so each Django-Q task
+    stays short and the cluster's stop signal is honoured between chunks.
+
+    After ``OPTIMAP_ORCID_BACKFILL_ABORT_AFTER`` *consecutive* systemic upstream
+    failures the run emails staff (:func:`notify_backfill_abort`) and raises,
+    instead of grinding through thousands of doomed requests.
+
+    ``on_progress`` is an optional ``callable(str)`` for per-work lines; the command
+    passes ``self.stdout.write``. When ``None`` (async path) progress goes to the
+    logger. Returns a summary dict suitable as the Django-Q task result.
+    """
+    from works.harvesting.openaire import (
+        OpenAireUnavailable,
+        _author_records_from_openaire,
+        _SystemicFailureBreaker,
+        openaire_task_q_options,
+    )
+    from works.openalex_matcher import author_records_from_authorships
+    from works.services.authors import link_work_authors
+
+    if throttle is None:
+        throttle = settings.OPTIMAP_ORCID_BACKFILL_THROTTLE
+
+    def report(message):
+        if on_progress is not None:
+            on_progress(message)
+        else:
+            logger.info(message)
+
+    use_openalex = source in ("openalex", "both")
+    use_openaire = source in ("openaire", "both")
+
+    base_qs = Work.objects.filter(Q(status="p") | Q(status="h"))
+    if source == "openalex":
+        base_qs = base_qs.filter(openalex_id__isnull=False).exclude(openalex_id="")
+    elif source == "openaire":
+        base_qs = base_qs.filter(doi__isnull=False).exclude(doi="")
+    else:  # both
+        base_qs = base_qs.filter(Q(openalex_id__isnull=False, openalex_id__gt="") | Q(doi__isnull=False, doi__gt=""))
+    if not force:
+        base_qs = base_qs.filter(author_links__isnull=True)
+    base_qs = base_qs.order_by("id").distinct()
+
+    carry = carry or {}
+    processed = carry.get("processed", 0)
+    linked = carry.get("linked", 0)
+    supplemented = carry.get("supplemented", 0)
+    skipped = carry.get("skipped", 0)
+    errors = carry.get("errors", 0)
+    total = carry.get("total")
+    if total is None:
+        total = base_qs.count()
+        if limit:
+            total = min(total, limit)
+    remaining = (limit - processed) if limit else None
+
+    if after_id == 0:
+        report(f"Works to process: {total} (source={source})")
+
+    # link_work_authors always writes (no save= flag), so honour --dry-run by
+    # reporting the candidate count and returning without touching the database.
+    if dry_run:
+        report("DRY RUN — no writes.")
+        return {
+            "processed": processed,
+            "linked": linked,
+            "supplemented": supplemented,
+            "skipped": skipped,
+            "errors": errors,
+            "dry_run": True,
+            "aborted": False,
+        }
+
+    deadline = (time.monotonic() + settings.OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS) if chunked else None
+    breaker = _SystemicFailureBreaker(settings.OPTIMAP_ORCID_BACKFILL_ABORT_AFTER)
+    oa_session = _openalex_session() if use_openalex else None
+    aire_session = _openaire_session() if use_openaire else None
+    last_id = after_id
+    aborted = False
+
+    def trip_or_record(exc):
+        """Record a systemic failure. Returns True if the breaker has tripped."""
+        nonlocal aborted
+        if breaker.systemic(exc):
+            notify_backfill_abort("backfill", breaker, processed=processed, total=total, trigger_source="manual")
+            aborted = True
+            return True
+        logger.warning("ORCID backfill: systemic upstream failure for work %s: %s", last_id, exc)
+        return False
+
+    try:
+        for work in base_qs.filter(id__gt=after_id).iterator(chunk_size=100):
+            if remaining is not None and remaining <= 0:
+                break
+            processed += 1
+            if remaining is not None:
+                remaining -= 1
+            last_id = work.id
+            parts = []
+            work_linked = 0
+
+            # --- OpenAlex pass ---
+            if use_openalex and work.openalex_id:
+                try:
+                    url = f"https://api.openalex.org/works/{work.openalex_id}"
+                    resp = oa_session.get(url, params={"select": "id,authorships"}, timeout=15)
+                    resp.raise_for_status()
+                    records = author_records_from_authorships(resp.json().get("authorships") or [])
+                    work_linked = link_work_authors(work, records, source="openalex", force=force)
+                    breaker.ok()
+                    parts.append(f"openalex:{work_linked} linked")
+                except Exception as exc:
+                    is_sys, status = _openalex_systemic(exc)
+                    errors += 1
+                    parts.append("openalex:error")
+                    if is_sys:
+                        if trip_or_record(_UpstreamUnavailable(f"OpenAlex: {exc}", status=status)):
+                            break
+                    else:
+                        breaker.ok()
+
+            # --- OpenAIRE pass (supplement in `both` mode, else primary) ---
+            if use_openaire and work.doi:
+                try:
+                    record = fetch_openaire_record(work.doi, session=aire_session, raise_on_unavailable=True)
+                    breaker.ok()
+                    if record:
+                        records = _author_records_from_openaire(record)
+                        n = link_work_authors(
+                            work, records, source="openaire", force=force, supplement=(source == "both")
+                        )
+                        parts.append(f"openaire:+{n}" if source == "both" else f"openaire:{n} linked")
+                        if n:
+                            if source == "both":
+                                supplemented += 1
+                            else:
+                                work_linked += n
+                    else:
+                        parts.append("openaire:no record")
+                except OpenAireUnavailable as exc:
+                    errors += 1
+                    parts.append("openaire:error")
+                    if trip_or_record(exc):
+                        break
+                except Exception as exc:
+                    logger.warning("OpenAIRE ORCID lookup failed for work %s: %s", work.id, exc)
+                    breaker.ok()
+                    errors += 1
+                    parts.append("openaire:error")
+
+            if work_linked:
+                linked += 1
+            elif not parts:
+                skipped += 1
+
+            report(f"  [{processed}/{total}] work {work.id} — {', '.join(parts) or 'skipped'}")
+
+            if chunked and time.monotonic() >= deadline:
+                break
+            if throttle:
+                time.sleep(throttle)
+    finally:
+        if oa_session is not None:
+            oa_session.close()
+        if aire_session is not None:
+            aire_session.close()
+
+    summary = {
+        "processed": processed,
+        "linked": linked,
+        "supplemented": supplemented,
+        "skipped": skipped,
+        "errors": errors,
+        "dry_run": dry_run,
+        "aborted": aborted,
+    }
+
+    if aborted:
+        report(f"ABORTED. processed={processed} linked={linked} supplemented={supplemented} errors={errors}")
+        raise _UpstreamUnavailable(
+            f"Author ORCID backfill aborted after {breaker.consecutive} consecutive systemic failures",
+            status=getattr(breaker.last_error, "status", None),
+        )
+
+    more_left = (remaining is None or remaining > 0) and base_qs.filter(id__gt=last_id).exists()
+    if chunked and more_left:
+        from django_q.tasks import async_task
+
+        async_task(
+            "works.tasks.backfill_author_orcids_task",
+            source=source,
+            limit=limit,
+            force=force,
+            dry_run=dry_run,
+            throttle=throttle,
+            chunked=True,
+            after_id=last_id,
+            carry={**summary, "total": total},
+            q_options=openaire_task_q_options(),
+        )
+        report(
+            f"Chunk done. processed={processed} linked={linked} supplemented={supplemented} "
+            f"errors={errors}; continuation enqueued."
+        )
+        return summary
+
+    report(
+        f"Done. processed={processed} linked={linked} supplemented={supplemented} skipped={skipped} errors={errors}"
+    )
+    return summary
+
+
+# -----------------------------------------------------------------------------
 # Data dump regeneration.
 # -----------------------------------------------------------------------------
 

@@ -501,6 +501,23 @@ OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER = env.int("OPTIMAP_OPENAIRE_ENRICH_ABORT_AFT
 # exchanged for a ~1h access token at OPENAIRE_TOKEN_EXCHANGE_URL. See
 # works/utils/service_tokens.py and docs/manage.md → "Renewing the OpenAIRE refresh token".
 OPTIMAP_OPENAIRE_REFRESH_TOKEN_DAYS = int(os.getenv("OPTIMAP_OPENAIRE_REFRESH_TOKEN_DAYS", 30))
+
+# --- Author ORCID backfill (backfill_author_orcids --async) ---------------------
+# The ORCID backfill links Work.author_links from OpenAlex and/or OpenAIRE. It
+# runs synchronously by default, or as bounded, self-re-enqueuing Django-Q chunks
+# with --async (mirrors the OpenAIRE backfill chunk/abort machinery).
+# Seconds slept between upstream API requests (OpenAlex direct DOI/author lookups
+# are cheap; keep this small).
+OPTIMAP_ORCID_BACKFILL_THROTTLE = float(os.getenv("OPTIMAP_ORCID_BACKFILL_THROTTLE", 0.1))
+# Wall-clock budget (seconds) one --async chunk runs before re-enqueuing a
+# continuation. Keep below Q_CLUSTER["timeout"] (600s) so a chunk never outlives
+# the cluster timeout and the stop signal is honoured between chunks.
+OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS = env.int("OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS", default=8 * 60)
+# Abort the backfill (email staff + fail the task) after this many *consecutive*
+# systemic upstream failures (HTTP 401/403/408/429, any 5xx, or a
+# connection/timeout) — i.e. "OpenAlex/OpenAIRE is refusing us", as opposed to a
+# single work simply having no record. Stops a broken run from spamming warnings.
+OPTIMAP_ORCID_BACKFILL_ABORT_AFTER = env.int("OPTIMAP_ORCID_BACKFILL_ABORT_AFTER", default=5)
 OPTIMAP_OPENAIRE_ACCESS_TOKEN_TTL = int(os.getenv("OPTIMAP_OPENAIRE_ACCESS_TOKEN_TTL", 3600))
 # Days before refresh-token expiry that the weekly check emails staff to renew it.
 # The check runs weekly: within this window it sends a reminder (every run, so a

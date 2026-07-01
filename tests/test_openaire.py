@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import django
 import requests
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import TestCase, override_settings, tag
@@ -418,6 +419,7 @@ class SweepCircuitBreakerTest(TestCase):
         self.assertTrue(alerts)
         self.assertIn("curator@example.org", [addr for m in alerts for addr in m.to])
         self.assertIn("403", alerts[0].body)
+        self.assertIn(settings.BASE_URL, alerts[0].body)
 
 
 @override_settings(OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS=0)

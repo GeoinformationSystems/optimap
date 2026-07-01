@@ -1,0 +1,25 @@
+[OPTIMAP] 🛑 Author ORCID backfill aborted — {{ context }}
+
+Hello,
+
+An OPTIMAP author ORCID backfill job was stopped automatically because an
+upstream API (OpenAlex and/or OpenAIRE) returned {{ consecutive }} consecutive
+systemic errors (HTTP {{ status }}).
+
+This usually means an upstream service is rejecting OPTIMAP's requests —
+sustained rate-limiting, an expired or invalid token, or a server/connection
+outage — rather than the individual works being missing upstream.
+
+Job:        {{ context }}
+Processed:  {{ processed }} of {{ total }} work(s) before aborting
+Last error: {{ error }}
+
+What to check:
+- Confirm OpenAlex is reachable and OPTIMAP is not being rate-limited (set
+  OPTIMAP_OPENALEX_API_KEY to raise the OpenAlex search budget).
+- For OpenAIRE, renew the refresh token in the Django admin (Works → Service
+  tokens) and confirm the Graph API is reachable.
+
+The Django-Q task that ran this job is recorded as failed. Re-run the backfill
+(python manage.py backfill_author_orcids --async) once upstream access is
+restored.

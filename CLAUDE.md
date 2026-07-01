@@ -388,7 +388,7 @@ For harvest completion/failure emails use `render_harvest_email` from `works.har
 
 **4. Write a content assertion test.** Every email must have at least one test that checks a key substring in `mail.outbox[0].body` — not just that an email was sent. See `tests/test_auth_emails.py`, `tests/test_work_notifications.py`, and `tests/test_regular_harvesting.py` for examples. Use `@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")`.
 
-**Complete email inventory** (14 templates, 22 distinct sends):
+**Complete email inventory** (15 templates, 23 distinct sends):
 
 | Template | Trigger | Sender |
 |----------|---------|--------|
@@ -406,6 +406,7 @@ For harvest completion/failure emails use `render_harvest_email` from `works.har
 | `subscription_regional.en.txt` | Scheduled regional subscription digest | `works/tasks.py::send_subscription_based_email` |
 | `service_token_renewal.en.txt` | Service refresh token (OpenAIRE) nears monthly expiry — notifies staff | `works/tasks.py::check_service_token_renewals` (weekly) |
 | `openaire_enrich_aborted.en.txt` | OpenAIRE sweep/backfill aborts after repeated systemic failures — notifies staff | `works/harvesting/openaire.py::notify_openaire_abort` |
+| `author_orcid_backfill_aborted.en.txt` | Author ORCID backfill (`--async`) aborts after repeated systemic OpenAlex/OpenAIRE failures — notifies staff | `works/tasks.py::notify_backfill_abort` |
 
 **Opt-out**: work-event emails (contribution/publish) respect `UserProfile.notify_work_events` (opt-out, default True). Monthly digest respects `UserProfile.notify_new_manuscripts`. Blocked senders are checked via `BlockedEmail`/`BlockedDomain`. All sends are logged to `EmailLog` for audit (harvest emails are the exception).
 

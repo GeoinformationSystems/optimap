@@ -9,6 +9,7 @@ This usually means OpenAIRE is rejecting OPTIMAP's requests — an expired or
 invalid access token, a revoked refresh token, an IP block, or sustained
 rate-limiting — rather than the individual works being missing from OpenAIRE.
 
+Instance:   {{ base_url }}
 Job:        {{ context }}
 Processed:  {{ processed }} of {{ total }} work(s) before aborting
 Last error: {{ error }}
