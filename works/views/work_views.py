@@ -752,6 +752,33 @@ def statistics_page(request):
     snapshot_by_country = _with_country(snapshot.by_country) if snapshot else []
     snapshot_by_journal = _with_source(snapshot.by_journal) if snapshot else []
 
+    # by_topic links to the /on/<slug> topic facet page (only when the topic's
+    # slug actually resolves there, mirroring the /browse directory); by_year
+    # links to the /during/<year> data-year facet page.
+    from django.urls import reverse
+    from django.utils.text import slugify
+
+    from works.views_indexed import topic_slug_map
+
+    topic_slugs = set(topic_slug_map())
+
+    def _with_topic(rows):
+        out = []
+        for r in rows:
+            slug = slugify(r["name"])
+            url = reverse("optimap:on-topic", args=[slug]) if slug in topic_slugs else None
+            out.append({"name": r["name"], "count": r["count"], "url": url})
+        return out
+
+    def _with_year(rows):
+        return [
+            {"year": r["year"], "count": r["count"], "url": reverse("optimap:during-year", args=[r["year"]])}
+            for r in rows
+        ]
+
+    snapshot_by_topic = _with_topic(snapshot.by_topic) if snapshot else []
+    snapshot_by_year = _with_year(snapshot.by_year) if snapshot else []
+
     return render(
         request,
         "statistics.html",
@@ -761,6 +788,8 @@ def statistics_page(request):
             "snapshot_by_ocean": snapshot_by_ocean,
             "snapshot_by_country": snapshot_by_country,
             "snapshot_by_journal": snapshot_by_journal,
+            "snapshot_by_topic": snapshot_by_topic,
+            "snapshot_by_year": snapshot_by_year,
             "history_json": _json.dumps(
                 [
                     {

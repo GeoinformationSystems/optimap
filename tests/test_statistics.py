@@ -3,9 +3,11 @@
 
 """Tests for StatisticsSnapshot, SourceCoverageSnapshot, the API endpoint, and the statistics page."""
 
+import datetime
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from works.models import Source, StatisticsSnapshot, Work
@@ -46,6 +48,11 @@ def _make_source(**kwargs):
 class StatisticsSnapshotTests(TestCase):
     """save_statistics_snapshot() creates a correct DB row."""
 
+    def setUp(self):
+        # by_topic / by_year read the cached facet helpers; clear between tests
+        # so a previous test's snapshot can't leave stale counts behind.
+        cache.clear()
+
     def test_snapshot_created(self):
         _make_published_work()
         from works.utils.statistics import save_statistics_snapshot
@@ -66,6 +73,44 @@ class StatisticsSnapshotTests(TestCase):
         self.assertIsInstance(snap.by_country, list)
         self.assertIsInstance(snap.by_publisher, list)
         self.assertIsInstance(snap.by_journal, list)
+        self.assertIsInstance(snap.by_topic, list)
+        self.assertIsInstance(snap.by_year, list)
+
+    def test_snapshot_by_topic_populated(self):
+        _make_published_work(topics=["Hydrology", "Remote Sensing"])
+        _make_published_work(topics=["Hydrology"])
+        from works.utils.statistics import save_statistics_snapshot
+
+        snap = save_statistics_snapshot()
+        counts = {row["name"]: row["count"] for row in snap.by_topic}
+        self.assertEqual(counts.get("Hydrology"), 2)
+        self.assertEqual(counts.get("Remote Sensing"), 1)
+
+    def test_snapshot_by_year_uses_temporal_coverage(self):
+        # by_year is keyed on temporal coverage (data years), NOT publicationDate.
+        # A work covering 2019–2021 counts under each of 2019, 2020, 2021.
+        _make_published_work(
+            publicationDate=datetime.date(2024, 1, 1),
+            timeperiod_startdate=["2019-01-01"],
+            timeperiod_enddate=["2021-12-31"],
+        )
+        _make_published_work(
+            publicationDate=datetime.date(2024, 1, 1),
+            timeperiod_startdate=["2020-01-01"],
+            timeperiod_enddate=["2020-12-31"],
+        )
+        from works.utils.statistics import save_statistics_snapshot
+
+        snap = save_statistics_snapshot()
+        counts = {row["year"]: row["count"] for row in snap.by_year}
+        self.assertEqual(counts.get(2019), 1)
+        self.assertEqual(counts.get(2020), 2)
+        self.assertEqual(counts.get(2021), 1)
+        # publication year (2024) is NOT a data year here
+        self.assertNotIn(2024, counts)
+        # ascending chronological order
+        years = [row["year"] for row in snap.by_year]
+        self.assertEqual(years, sorted(years))
 
     def test_snapshot_by_journal_populated(self):
         src = _make_source(name="Geo Journal")

@@ -232,6 +232,45 @@
     </div>
   </div>
 
+  <div class="row">
+    <div class="col-md-6 mb-4">
+      <h2>By topic <small class="text-muted" style="font-size:0.6em">(top 50)</small></h2>
+      {% if snapshot_by_topic %}
+      <div style="max-height: 320px; overflow-y: auto;">
+        <table class="table table-sm table-striped mb-0">
+          <thead><tr><th scope="col">Topic</th><th scope="col" class="text-right">Works</th></tr></thead>
+          <tbody>
+            {% for row in snapshot_by_topic %}
+            <tr>
+              <td>{% if row.url %}<a href="{{ row.url }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}</td>
+              <td class="text-right">{{ row.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p class="text-muted small">No data yet.</p>{% endif %}
+    </div>
+    <div class="col-md-6 mb-4">
+      <h2>By years <small class="text-muted" style="font-size:0.6em">(temporal coverage / data year)</small></h2>
+      {% if snapshot_by_year %}
+      <div style="max-height: 320px; overflow-y: auto;">
+        <table class="table table-sm table-striped mb-0">
+          <thead><tr><th scope="col">Year</th><th scope="col" class="text-right">Works</th></tr></thead>
+          <tbody>
+            {% for row in snapshot_by_year %}
+            <tr>
+              <td>{% if row.url %}<a href="{{ row.url }}">{{ row.year }}</a>{% else %}{{ row.year }}{% endif %}</td>
+              <td class="text-right">{{ row.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<p class="text-muted small">No data yet.</p>{% endif %}
+    </div>
+  </div>
+
   <!-- Source coverage -->
   {% if sources_coverage %}
   <h2 class="mt-2">Source coverage</h2>

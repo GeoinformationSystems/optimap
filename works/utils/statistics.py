@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from django.core.cache import cache
 from django.db.models import Count, Q
+from django.db.models.functions import ExtractYear
 from django.utils import timezone
 
 from works.models import SENTINEL_COUNTRY_ISO, Collection, Source, Work
@@ -115,6 +116,22 @@ def calculate_statistics():
         if row["source__name"]
     ]
 
+    # by_topic / by_year reuse the canonical facet helpers so the statistics
+    # page matches the /on/<topic> and /during/<year> facet pages exactly.
+    from works.views_indexed import data_year_counts, published_topic_counts
+
+    # by_topic — top 50 research topics (Work.topics, typically OpenAlex),
+    # counted per distinct topic a published work carries.
+    stats["by_topic"] = [
+        {"name": name, "count": count}
+        for name, count in sorted(published_topic_counts().items(), key=lambda kv: -kv[1])[:50]
+    ]
+
+    # by_year — published works per **data year** (temporal coverage / extent,
+    # NOT publication date), ascending chronological. Each work counts under
+    # every year its temporal interval(s) span.
+    stats["by_year"] = [{"year": year, "count": count} for year, count in sorted(data_year_counts().items())]
+
     # by_collection — all public collections with their published work counts
     stats["by_collection"] = sorted(
         [
@@ -162,6 +179,8 @@ def save_statistics_snapshot():
         by_publisher=stats["by_publisher"],
         by_journal=stats["by_journal"],
         by_collection=stats["by_collection"],
+        by_topic=stats["by_topic"],
+        by_year=stats["by_year"],
     )
     return snapshot
 
@@ -195,8 +214,6 @@ def calculate_source_coverage(source):
     contributors_count = (
         Contribution.objects.filter(work__source=source).exclude(user__isnull=True).values("user").distinct().count()
     )
-    from django.db.models.functions import ExtractYear
-
     by_year = [
         {"year": row["year"], "count": row["cnt"]}
         for row in (

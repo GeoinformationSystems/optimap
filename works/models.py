@@ -1350,6 +1350,10 @@ class StatisticsSnapshot(models.Model):
     by_publisher = models.JSONField(default=list)
     by_journal = models.JSONField(default=list)
     by_collection = models.JSONField(default=list)
+    # by_topic: list of {"name": str, "count": int}; by_year: list of
+    # {"year": int, "count": int} in ascending chronological order.
+    by_topic = models.JSONField(default=list)
+    by_year = models.JSONField(default=list)
 
     class Meta:
         ordering = ["-computed_at"]
