@@ -469,11 +469,13 @@ def enrich_event_from_openaire(event_id, throttle=None, after_id=0, carry=None):
     """Async sweep: check a harvest event's DOI-bearing works against OpenAIRE.
 
     Enqueued by ``complete_harvest`` after every successful harvest (gated by
-    ``OPTIMAP_OPENAIRE_ENRICH_ON_HARVEST``). Every work with a DOI is looked up so
-    the OpenAIRE consultation is always recorded in ``provenance.openaire_match``
-    (audit trail) — fields that are empty get filled (fill-if-empty), while works
-    that already have everything still get a ``matched``/``none`` record (and, on a
-    match, an ``openaire_enrich`` event listing the offered-but-not-applied fields).
+    ``OPTIMAP_OPENAIRE_ENRICH_ON_HARVEST``). Every DOI-bearing work that has *not*
+    yet been consulted is looked up so the OpenAIRE consultation is recorded in
+    ``provenance.openaire_match`` (audit trail) — fields that are empty get filled
+    (fill-if-empty), while works that already have everything still get a
+    ``matched``/``none`` record (and, on a match, an ``openaire_enrich`` event
+    listing the offered-but-not-applied fields). Works that already carry an
+    ``openaire_match`` are skipped, so each work is consulted exactly once.
     Throttles between requests to respect OpenAIRE's rate limit (60/hour anonymous,
     7200/hour with a token). Returns the number of works whose fields were filled.
 
@@ -484,6 +486,13 @@ def enrich_event_from_openaire(event_id, throttle=None, after_id=0, carry=None):
     keeps every Django-Q task short, so the cluster's stop signal is honoured
     between chunks and no task outlives the cluster timeout. ``carry`` threads the
     running totals across chunks.
+
+    **Self-resuming across aborts.** The ``after_id`` cursor lives only in the
+    continuation task's arguments and is lost when the circuit breaker (below)
+    aborts the run. Because consulted works are excluded from the queryset via
+    their ``openaire_match`` marker, a fresh re-trigger (default ``after_id=0``)
+    still resumes from the first unchecked work rather than re-processing from the
+    start, so repeated runs after a systemic outage converge and reach the tail.
 
     **Circuit breaker.** After ``OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER`` *consecutive*
     systemic OpenAIRE failures (:class:`OpenAireUnavailable` — auth / rate-limit /
@@ -503,7 +512,19 @@ def enrich_event_from_openaire(event_id, throttle=None, after_id=0, carry=None):
     if throttle is None:
         throttle = settings.OPTIMAP_OPENAIRE_ENRICH_THROTTLE
 
-    base_qs = event.works.filter(doi__isnull=False).exclude(doi="").order_by("id")
+    # Skip works already consulted in an earlier (possibly aborted) run: every
+    # work the sweep touches gets a ``provenance.openaire_match`` block written,
+    # matched or not, so its presence is a durable "already checked" marker. This
+    # makes the sweep idempotent and self-resuming — a fresh re-trigger after an
+    # abort (which discards the in-flight ``after_id`` cursor) naturally continues
+    # from the first unchecked work instead of re-spending OpenAIRE's rate budget
+    # on works done earlier, so repeated runs converge and reach the tail.
+    base_qs = (
+        event.works.filter(doi__isnull=False)
+        .exclude(doi="")
+        .filter(provenance__openaire_match__isnull=True)
+        .order_by("id")
+    )
     carry = carry or {}
     total = carry.get("total")
     if total is None:

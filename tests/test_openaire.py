@@ -422,6 +422,80 @@ class SweepCircuitBreakerTest(TestCase):
         self.assertIn(settings.BASE_URL, alerts[0].body)
 
 
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER=2,
+)
+class SweepResumeAfterAbortTest(TestCase):
+    """A re-triggered sweep skips already-consulted works and converges.
+
+    Reproduces the reported failure: an aborted run discards its in-flight
+    ``after_id`` cursor, so a fresh re-trigger (default ``after_id=0``) used to
+    re-process from the start and never reach the tail. Works that were already
+    consulted carry ``provenance.openaire_match``, so they are now excluded from
+    the queryset and the second run continues from the first unchecked work.
+    """
+
+    def setUp(self):
+        self.source = Source.objects.create(name="S", url_field="https://e.x/oai")
+        self.event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+        get_user_model().objects.create_user(
+            username="curator", email="curator@example.org", is_staff=True, is_active=True
+        )
+        # Five DOI-bearing works, processed in ascending id order.
+        self.works = [
+            Work.objects.create(title=f"w{i}", doi=f"10.1/{i}", abstract="", status="h", job=self.event)
+            for i in range(5)
+        ]
+
+    @staticmethod
+    def _fetch_ok_then_403(*ok_dois):
+        """Return a side_effect: FAKE_RECORD for ``ok_dois``, else systemic 403."""
+        ok = set(ok_dois)
+
+        def side_effect(doi, *args, **kwargs):
+            if doi in ok:
+                return FAKE_RECORD
+            raise OpenAireUnavailable("403 Forbidden", status=403)
+
+        return side_effect
+
+    def test_second_run_skips_consulted_works_and_reaches_tail(self):
+        # Phase 1: OpenAIRE serves the first two works, then blocks. With
+        # ABORT_AFTER=2 the run aborts on works 2 and 3, so only 0 and 1 are
+        # consulted (and marked); 2, 3, 4 are left unchecked.
+        with patch(
+            "works.harvesting.openaire.fetch_openaire_record",
+            side_effect=self._fetch_ok_then_403("10.1/0", "10.1/1"),
+        ):
+            with self.assertRaises(OpenAireUnavailable):
+                enrich_event_from_openaire(self.event.id, throttle=0)
+
+        for w in self.works:
+            w.refresh_from_db()
+        self.assertEqual(self.works[0].provenance.get("openaire_match", {}).get("status"), "matched")
+        self.assertEqual(self.works[1].provenance.get("openaire_match", {}).get("status"), "matched")
+        for w in self.works[2:]:
+            self.assertNotIn("openaire_match", w.provenance or {})
+
+        # Phase 2: OpenAIRE has recovered. A fresh re-trigger starts at after_id=0
+        # but must consult only the still-unchecked works (2, 3, 4), never re-do
+        # 0 and 1 — otherwise it would re-spend the rate budget and stall again.
+        with patch(
+            "works.harvesting.openaire.fetch_openaire_record",
+            return_value=FAKE_RECORD,
+        ) as mock_fetch:
+            enrich_event_from_openaire(self.event.id, throttle=0)
+
+        consulted = {c.args[0] for c in mock_fetch.call_args_list}
+        self.assertEqual(consulted, {"10.1/2", "10.1/3", "10.1/4"})
+
+        # The two runs together cover every work: convergence.
+        for w in self.works:
+            w.refresh_from_db()
+            self.assertEqual(w.provenance.get("openaire_match", {}).get("status"), "matched")
+
+
 @override_settings(OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS=0)
 class SweepChunkingTest(TestCase):
     """When the per-chunk budget is exhausted, the sweep re-enqueues a continuation."""
