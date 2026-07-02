@@ -23,6 +23,7 @@ Usage:
 from django.core.management.base import BaseCommand, CommandError
 
 from works.tasks import (
+    human_size,
     regenerate_all_data_dumps,
     regenerate_csv_cache,
     regenerate_geojson_cache,
@@ -69,7 +70,7 @@ class Command(BaseCommand):
                 if path is None:
                     self.stdout.write(self.style.WARNING(f"  {name}: FAILED (see logs)"))
                 else:
-                    self.stdout.write(self.style.SUCCESS(f"  {name}: {path}"))
+                    self.stdout.write(self.style.SUCCESS(f"  {name}: {path} ({human_size(path)})"))
             ok = sum(1 for p in results.values() if p is not None)
             self.stdout.write(self.style.SUCCESS(f"Done — regenerated {ok}/{len(results)} format(s)."))
             return
@@ -77,4 +78,4 @@ class Command(BaseCommand):
         path = _FORMAT_DISPATCH[fmt]()
         if path is None:
             raise CommandError(f"{fmt} regeneration failed (see logs).")
-        self.stdout.write(self.style.SUCCESS(f"Regenerated {fmt}: {path}"))
+        self.stdout.write(self.style.SUCCESS(f"Regenerated {fmt}: {path} ({human_size(path)})"))

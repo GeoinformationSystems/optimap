@@ -195,6 +195,25 @@ def generate_data_dump_filename(extension: str) -> str:
     return f"optimap_data_dump_{ts}.{extension}"
 
 
+def human_size(path) -> str:
+    """Return a human-readable size (e.g. ``12.3 MiB``) for the file at ``path``.
+
+    Falls back to ``"size unavailable"`` if the file can't be stat'd (e.g. it
+    was pruned between generation and reporting). Shared by the dump task
+    logging and the ``regenerate_data_dumps`` management command.
+    """
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return "size unavailable"
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            precision = 0 if unit == "B" else 1
+            return f"{value:.{precision}f} {unit}"
+        value /= 1024
+
+
 def cleanup_old_data_dumps(directory: Path, keep: int):
     """Keep the newest ``keep`` dump cycles, dropping older files.
 
@@ -1639,7 +1658,14 @@ def regenerate_geojson_cache():
         fout.writelines(fin)
 
     size = os.path.getsize(json_path)
-    logger.info("Cached GeoJSON at %s (%d bytes), gzipped at %s", json_path, size, gzip_path)
+    logger.info(
+        "Cached GeoJSON at %s (%d bytes, %s), gzipped at %s (%s)",
+        json_path,
+        size,
+        human_size(json_path),
+        gzip_path,
+        human_size(gzip_path),
+    )
     cleanup_old_data_dumps(Path(cache_dir), settings.DATA_DUMP_RETENTION)
     return json_path
 
@@ -1675,9 +1701,10 @@ def convert_geojson_via_gdal(geojson_path, *, fmt, ext, layer_creation_options=N
         if ds is None:
             logger.warning("GDAL %s conversion failed: %s", fmt, gdal.GetLastErrorMsg())
             return None
-        # Drop the reference so GDAL flushes the dataset to disk.
+        # Drop the reference so GDAL flushes the dataset to disk (must precede
+        # the size stat below, else the file may still be partially buffered).
         ds = None
-        logger.info("GDAL %s conversion succeeded: %s (%s)", fmt, out_path, gdal.GetLastErrorMsg())
+        logger.info("GDAL %s conversion succeeded: %s (%s)", fmt, out_path, human_size(out_path))
         return out_path
     except Exception as err:
         logger.warning("GDAL %s conversion failed: %s", fmt, err)
