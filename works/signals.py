@@ -102,6 +102,12 @@ def update_work_placename(sender, instance, **kwargs):
     """
     if not getattr(settings, "GEOCODE_WORKS_ON_SAVE", False):
         return
+    # Respect an authoritative placename supplied by the harvester (e.g. an IGSN
+    # sample's DataCite geoLocationPlace) — don't overwrite it with reverse
+    # geocoding. Marked via provenance.metadata_sources.placename (#187).
+    prov = instance.provenance if isinstance(instance.provenance, dict) else {}
+    if instance.placename and (prov.get("metadata_sources") or {}).get("placename"):
+        return
     geom = instance.geometry
     if not geom or geom.empty:
         return
@@ -273,3 +279,29 @@ def assign_work_regions(sender, instance, **kwargs):
             invalidate_region_page_cache(region)
     except Exception as err:  # pragma: no cover — non-critical path
         logger.warning("region assignment failed for work %s: %s", instance.pk, err)
+
+
+# --- Generic work↔work relationships (#187) ---
+
+
+@receiver(post_save, sender=_Work)
+def resolve_incoming_work_relations(sender, instance, **kwargs):
+    """Connect dangling ``WorkRelation`` rows that point at this work's identifier.
+
+    ``WorkRelation`` rows harvested from DataCite ``relatedIdentifiers`` start
+    out identifier-only (``to_work`` null) because the related resource is
+    usually not yet in OPTIMAP. When that resource is later harvested, this
+    signal upgrades every dangling relation whose ``to_identifier`` matches the
+    new work's DOI or URL to a concrete ``to_work`` FK. ``to_identifier`` is
+    kept for provenance. ``update()`` does not re-fire ``Work`` save, so there
+    is no recursion.
+    """
+    from works.models import WorkRelation
+
+    candidates = [v for v in (instance.doi, instance.url) if v]
+    if not candidates:
+        return
+    try:
+        WorkRelation.objects.filter(to_work__isnull=True, to_identifier__in=candidates).update(to_work=instance)
+    except Exception as err:  # pragma: no cover — non-critical path
+        logger.warning("work-relation resolution failed for work %s: %s", instance.pk, err)

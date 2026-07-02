@@ -210,7 +210,7 @@
     <span class="meta-item"><i class="fas fa-users text-muted"></i> <strong>Authors:</strong> {{ authors_list|join:", " }}</span>
   {% endif %}
   {% if work.placename %}
-    <span class="meta-item"><i class="fas fa-map-marker-alt text-muted"></i> <strong>Placename:</strong> {{ work.placename }} <i class="fas fa-info-circle text-muted" data-toggle="tooltip" title="This information was derived from the geometries of the work based on the Nominatim gazetteer." aria-label="This information was derived from the geometries of the work based on the Nominatim gazetteer."></i></span>
+    <span class="meta-item"><i class="fas fa-map-marker-alt text-muted"></i> <strong>Placename:</strong> {{ work.placename }} {% with pn_tip=work|placename_source_tip %}<i class="fas fa-info-circle text-muted" data-toggle="tooltip" title="{{ pn_tip }}" aria-label="{{ pn_tip }}"></i>{% endwith %}</span>
   {% endif %}
   {% with work_regions=work.regions.all %}
   {% if work_regions %}

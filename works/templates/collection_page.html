@@ -3,6 +3,7 @@
 
 {% extends "base.html" %}
 {% load static %}
+{% load optimap_extras %}
 
 {% block title %}{{ collection.name }} | {% endblock %}
 
@@ -435,6 +436,7 @@
               {% if work.coins_ctx %}<span class="Z3988" title="{{ work.coins_ctx }}"></span>{% endif %}
               <div class="card-body">
                 <h5 class="card-title">
+                  <i class="{{ work|work_type_icon }}" title="{{ work.get_type_display }}" aria-label="{{ work.get_type_display }}"></i>
                   <a href="{% url 'optimap:work-landing' work.get_identifier %}" rel="noopener">
                     {{ work.title|truncatechars:120 }}
                   </a>

@@ -220,7 +220,7 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                 ).order_by("_status_priority", "-creationDate", "-id")
             else:
                 qs = qs.order_by("-creationDate", "-id")
-            qs = annotate_rounded_geometry(qs).prefetch_related("countries", "regions")
+            qs = annotate_rounded_geometry(qs).prefetch_related("countries", "regions", "relations_from__to_work")
             author_orcid_staff = qp.get("author_orcid")
             if author_orcid_staff:
                 from works.utils.orcid import normalize_orcid
@@ -235,9 +235,9 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
             qs = (curated | public).distinct()
             if not include_redirected:
                 qs = qs.exclude(status="r")
-            return annotate_rounded_geometry(qs).prefetch_related("countries", "regions")
+            return annotate_rounded_geometry(qs).prefetch_related("countries", "regions", "relations_from__to_work")
         public = Work.objects.filter(status="p").order_by("-creationDate", "-id").distinct()
-        qs = annotate_rounded_geometry(public).prefetch_related("countries", "regions")
+        qs = annotate_rounded_geometry(public).prefetch_related("countries", "regions", "relations_from__to_work")
         author_orcid = qp.get("author_orcid")
         if author_orcid:
             from works.utils.orcid import normalize_orcid
@@ -275,23 +275,33 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
             "Each key names a Work field; the value names where that field's data came from.\n"
             "| Key | Possible values |\n"
             "|-----|-----------------|\n"
-            "| `abstract` | `crossref`, `openaire` |\n"
-            "| `authors` | `original_source`, `openalex`, `crossref`, `openaire` |\n"
-            "| `keywords` | `original_source`, `openalex`, `openaire` |\n"
+            "| `abstract` | `crossref`, `openaire`, `synthesised` / `synthesised+datacite.descriptions` (IGSN samples — machine-composed, see the `sample` block) |\n"
+            "| `authors` | `original_source`, `openalex`, `crossref`, `openaire`, `datacite.creators` (IGSN sample collector) |\n"
+            "| `keywords` | `original_source`, `openalex`, `openaire`, `datacite.subjects` (IGSN sample materials) |\n"
             "| `topics` | `openalex` |\n"
             "| `type` | `openalex` |\n"
-            "| `geometry` | `DC.SpatialCoverage`, `DC.box`, `link rel=alternate geo+json`, `study_sites`, `reharvest_html` (re-extracted from the landing page by the admin re-harvest) |\n"
-            "| `timeperiod` | `reharvest_html` (re-extracted from the landing page by the admin re-harvest) |\n"
+            "| `title` | `datacite.title` (IGSN local sample number) |\n"
+            "| `placename` | `datacite.geoLocationPlace`, `gfz.landing_page` (IGSN samples; else set by Nominatim reverse-geocoding, recorded under `geocoding`) |\n"
+            "| `geometry` | `DC.SpatialCoverage`, `DC.box`, `link rel=alternate geo+json`, `study_sites`, `datacite.geoLocations`, `gfz.landing_page`, `reharvest_html` (re-extracted from the landing page by the admin re-harvest) |\n"
+            "| `timeperiod` | `datacite.dates[Collected]`, `reharvest_html` (re-extracted from the landing page by the admin re-harvest) |\n"
             "| `doi` | `original_source`, `openalex` |\n"
             "| `date` | `original_source (year-only)` |\n"
             "| `volume` / `issue` / `first_page` / `last_page` | `openalex`, `openaire` |\n"
             "| `language` | `openaire` |\n"
-            "| `publisher` | `openaire` |\n"
+            "| `publisher` | `openaire`, `datacite.publisher` (IGSN registrant) |\n"
             "| `biblio` | `crossref` (volume/issue/pages from Crossref in one batch) |\n"
             "| `openalex_metadata` | `openalex` (any OpenAlex enrichment was applied) |\n"
             "| `openalex_doi_version_fallback` | `{queried_doi, matched_doi}` dict — present when the work's versioned DOI (e.g. `/v2`) was not found in OpenAlex and enrichment succeeded via the bare DOI or an earlier version (e.g. `/v1`) |\n"
             "| `openalex` | `primary` (work was harvested directly from OpenAlex as the primary source) |\n"
             "| `author_orcids` | `openalex`, `openaire` (source that supplied the ORCID links written to the Author M2M) |\n\n"
+            "**`sample` block** (IGSN physical samples only, #187):\n"
+            "| Key | Type | Description |\n"
+            "|-----|------|-------------|\n"
+            "| `resource_type` | string | DataCite `types.resourceType` — the specific sample kind (`Specimen`, `Core`, `Cuttings`, `material sample`, …) |\n"
+            "| `materials` | array | DataCite `subjects` (also copied to `Work.keywords`) |\n"
+            "| `repositories` | array | DataCite `contributors` — hosting/curating institutions |\n"
+            "| `place` | string | DataCite `geoLocationPlace` (or a scraped place) |\n"
+            "| `description` | object | `synthesised` (bool), `synthesised_from` (array of the fields used to compose the abstract), `source_description_appended` (bool — whether a real DataCite `descriptions` value was appended after the synthesised sentence) |\n\n"
             "**`openalex_match` keys:**\n"
             "| Key | Type | Description |\n"
             "|-----|------|-------------|\n"
@@ -371,11 +381,21 @@ class WorkViewSet(viewsets.ReadOnlyModelViewSet):
                         required=False,
                         help_text=(
                             "Per-field attribution map. Keys name Work fields; values name their source. "
-                            "Known keys: abstract, authors, keywords, topics, type, geometry, doi, date, "
+                            "Known keys: title, abstract, authors, keywords, topics, type, geometry, placename, doi, date, "
                             "volume, issue, first_page, last_page, language, publisher, biblio, openalex_metadata, openalex, author_orcids. "
                             "Known values: original_source, openalex, openaire, crossref, DC.SpatialCoverage, "
                             "DC.box, link rel=alternate geo+json, study_sites, "
-                            "original_source (year-only), primary."
+                            "datacite.title, datacite.creators, datacite.subjects, datacite.publisher, datacite.geoLocations, "
+                            "datacite.geoLocationPlace, datacite.dates[Collected], gfz.landing_page, "
+                            "synthesised, synthesised+datacite.descriptions, original_source (year-only), primary."
+                        ),
+                    ),
+                    "sample": drf_serializers.DictField(
+                        required=False,
+                        help_text=(
+                            "IGSN physical-sample metadata (#187). Keys: resource_type, materials, "
+                            "repositories, place, description (synthesised / synthesised_from / "
+                            "source_description_appended). See the metadata_sources section above."
                         ),
                     ),
                     "openalex_match": drf_serializers.DictField(

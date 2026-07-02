@@ -39,7 +39,9 @@ from works.models import Collection, HarvestingEvent, Source, Work
 from works.tasks import (
     harvest_crossref_book_list,
     harvest_crossref_prefix,
+    harvest_datacite,
     harvest_geoscienceworld,
+    harvest_gfz_igsn,
     harvest_mountain_wetlands,
     harvest_oai_endpoint,
     harvest_openalex_source,
@@ -580,6 +582,53 @@ SOURCE_CONFIG = {
         "is_oa": True,
         "default_work_type": "article",
     },
+    "sesar-igsn": {
+        "name": "SESAR IGSN samples (DataCite)",
+        # DataCite-harvester sources use url only for display; the harvester
+        # builds its API query from harvest_config.
+        "url": "https://api.datacite.org/dois?query=types.resourceTypeGeneral:PhysicalObject",
+        "collection_name": "SESAR IGSN samples",
+        "collection_description": (
+            "Physical samples registered with IGSN via SESAR (System for Earth Sample Registration), "
+            "harvested from DataCite. Each sample carries authoritative coordinates; where the sample "
+            "metadata links to publications or datasets, those are recorded as related works."
+        ),
+        "homepage_url": "https://www.geosamples.org/",
+        "publisher_name": "SESAR",
+        "source_type": "datacite",
+        "is_oa": True,
+        "default_work_type": "physical-object",
+        # Default sampling: SESAR, coordinates required, stable sort. Cap runs
+        # with --max-records or a "max_records" key here. Override any of
+        # publisher / require_coordinates / only_with_related_doi / bbox /
+        # date_from / date_to / resource_type / query / sort per source.
+        "harvest_config": {
+            "publisher": "SESAR",
+            "require_coordinates": True,
+            "sort": "created",
+        },
+        # Large corpus — disabled from --all by default; harvest explicitly with
+        # --source sesar-igsn --max-records N.
+        "enabled": False,
+    },
+    "gfz-igsn": {
+        "name": "GFZ IGSN samples (landing-page scrape)",
+        "url": "https://dataservices.gfz-potsdam.de/igsn/",
+        "collection_name": "GFZ IGSN samples",
+        "collection_description": (
+            "Physical samples registered with IGSN by GFZ Data Services. GFZ does not publish "
+            "coordinates to DataCite, so this source scrapes each sample's landing page for its "
+            "sampling location (~65% of samples carry usable coordinates)."
+        ),
+        "homepage_url": "https://dataservices.gfz-potsdam.de/igsn/",
+        "publisher_name": "GFZ Data Services",
+        "source_type": "gfz-igsn",
+        "is_oa": True,
+        "default_work_type": "physical-object",
+        # ~38k landing-page fetches; throttle politely. Cap runs with --max-records.
+        "harvest_config": {"throttle": 0.5},
+        "enabled": False,
+    },
 }
 
 
@@ -1054,6 +1103,22 @@ class Command(BaseCommand):
                         max_records=max_records,
                         update_existing=update_existing,
                     )
+                elif source_type == "datacite":
+                    self.stdout.write("Source type: DataCite (IGSN samples)")
+                    harvest_datacite(
+                        source.id,
+                        user=user,
+                        max_records=max_records,
+                        update_existing=update_existing,
+                    )
+                elif source_type == "gfz-igsn":
+                    self.stdout.write("Source type: GFZ IGSN (landing-page scrape)")
+                    harvest_gfz_igsn(
+                        source.id,
+                        user=user,
+                        max_records=max_records,
+                        update_existing=update_existing,
+                    )
                 else:
                     # Covers source_type in {oai-pmh, ojs, janeway} — all share the OAI harvester.
                     self.stdout.write(f"Source type: {source_type}")
@@ -1325,6 +1390,10 @@ class Command(BaseCommand):
             return "works.tasks.harvest_geoscienceworld", common
         if source_type == "openalex":
             return "works.tasks.harvest_openalex_source", common
+        if source_type == "datacite":
+            return "works.tasks.harvest_datacite", common
+        if source_type == "gfz-igsn":
+            return "works.tasks.harvest_gfz_igsn", common
         # Covers oai-pmh, ojs, janeway — all share the OAI harvester.
         return "works.tasks.harvest_oai_endpoint", common
 
@@ -1436,6 +1505,7 @@ class Command(BaseCommand):
             crossref_filter=config.get("crossref_filter", ""),
             issn_l=config.get("issn_l"),
             source_titles=config.get("source_titles") or None,
+            harvest_config=config.get("harvest_config") or {},
             harvest_interval_minutes=0,
         )
 
@@ -1476,6 +1546,7 @@ class Command(BaseCommand):
             "crossref_filter",
             "issn_l",
             "source_titles",
+            "harvest_config",
         ):
             new_value = config.get(field)
             if not new_value or getattr(source, field):

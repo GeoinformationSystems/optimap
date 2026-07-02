@@ -5,6 +5,7 @@
 <div class="card locate-card">
   <div class="card-body">
     <h5 class="card-title">
+      <i class="{{ work|work_type_icon }}" title="{{ work.get_type_display }}" aria-label="{{ work.get_type_display }}"></i>
       {% if work.doi %}
         <a href="{% url 'optimap:work-landing' work.doi %}" rel="noopener">{{ work.title|truncatechars:120 }}</a>
       {% elif work.url %}

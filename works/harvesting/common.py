@@ -45,6 +45,7 @@ class HarvestStats:
         "skipped_same_source",
         "skipped_cross_source",
         "skipped_existing",
+        "skipped_no_geometry",
     )
 
     def __init__(self):
@@ -54,10 +55,14 @@ class HarvestStats:
         self.skipped_same_source = 0
         self.skipped_cross_source = 0
         self.skipped_existing = 0
+        # Records fetched but not ingested because they carry no usable geometry
+        # (e.g. IGSN samples with a place name but no coordinates). Kept distinct
+        # from dedup skips so logs/summaries don't misattribute them.
+        self.skipped_no_geometry = 0
 
     @property
     def skipped(self):
-        return self.skipped_same_source + self.skipped_cross_source + self.skipped_existing
+        return self.skipped_same_source + self.skipped_cross_source + self.skipped_existing + self.skipped_no_geometry
 
     def record(self, action):
         if action == "created":
@@ -72,6 +77,8 @@ class HarvestStats:
             self.skipped_cross_source += 1
         elif action == "skipped_existing":
             self.skipped_existing += 1
+        elif action == "skipped_no_geometry":
+            self.skipped_no_geometry += 1
 
 
 class HarvestWarningCollector(logging.Handler):

@@ -535,6 +535,59 @@ The MaRESS harvester is bespoke because the API is Zotero-shaped, not OAI-PMH/RS
 - **Idempotency:** the harvester uses each item's stable API URL (`<source.url_field>/<item-uuid>`) as `Work.url`. Re-running on the same payload is a no-op.
 - **Provenance:** `Work.provenance.harvest.original_record` stashes the verbatim API record so curators can re-run enrichment without re-fetching upstream.
 
+#### IGSN physical samples — `datacite` and `gfz-igsn` source types
+
+<a id="igsn-physical-samples"></a>
+
+IGSN physical samples (registered as DataCite DOIs with
+`resourceTypeGeneral=PhysicalObject`) are harvested as `Work` rows with
+`type='physical-object'` and shown on the map alongside publications, in a
+separate toggle-able **IGSN samples** overlay with a distinct amber marker. The
+full corpus is ~13.4 M geolocated points, so a harvest is always a **bounded
+subset**; scaling the whole corpus (server-side clustering) is tracked in #263.
+
+Two harvesters, both **disabled from `--all`** (run them explicitly):
+
+**`sesar-igsn` (`datacite` source type)** — pulls a configurable SESAR slice from
+the DataCite REST API. Coordinates come from `geoLocations` and related works
+from `relatedIdentifiers`; no scraping.
+
+- **Run it:** `python manage.py harvest_sources --source sesar-igsn --create-sources --max-records 200`.
+- **Sampling config** lives in `Source.harvest_config` (JSON, editable in the admin);
+  command flags override per run. Keys:
+  - `publisher` (default `SESAR`), `require_coordinates` (default `true` — only
+    samples with a `geoLocationPoint`), `only_with_related_doi` (require a DOI
+    relatedIdentifier), `resource_type` (e.g. `Specimen`), `bbox`
+    (`[minLon, minLat, maxLon, maxLat]`), `date_from` / `date_to` (on `registered`),
+    free-form `query` (ANDed on), `sort` (default `created`), `max_records`.
+  - The default `sort=created` is **stable**, so raising `max_records` re-encounters
+    the same records first (skipped as duplicates) before adding new ones.
+
+**`gfz-igsn` (`gfz-igsn` source type)** — GFZ Data Services publishes **no**
+coordinates to DataCite, so this harvester enumerates GFZ IGSNs from DataCite and
+scrapes each sample's landing page (`dataservices.gfz-potsdam.de/igsn/esg/index.php?igsn=<IGSN>`,
+the `<table class="location">`). ~65 % of samples carry usable coordinates; the
+rest ("N/A") are skipped. It is a throttled bulk job (`harvest_config.throttle`
+seconds between page fetches, default 0.5).
+
+- **Run it:** `python manage.py harvest_sources --source gfz-igsn --create-sources --max-records 200`.
+
+**Common behaviour.** Samples are **published on harvest** (`status='p'`) since they
+carry authoritative coordinates and need no contribution, and are auto-tagged into
+a **SESAR IGSN samples** / **GFZ IGSN samples** collection (its own
+`/collections/<id>/` page). Related identifiers become generic `WorkRelation`
+rows (see below). Both source types auto-schedule via `Source.harvest_interval_minutes`
+like any other source, and support `--async`.
+
+**Generic work↔work relationships (`WorkRelation`).** Any work can link to any
+other resource via `WorkRelation` (`from_work` → `to_work` or a dangling
+`to_identifier`, with a normalized `relation_type`). Sample harvests populate it
+from DataCite `relatedIdentifiers`. When the related resource is not yet in
+OPTIMAP the link is stored as a **dangling** identifier; a `post_save` signal
+upgrades it to a real `to_work` FK once that DOI/URL is harvested. Relations are
+editable in the Django admin (**Works → Work relations**) and exposed on the API
+as `related_works` on the full work serializer.
+
 ### Where things live in code
 
 - Model: [works/models.py](../works/models.py) — `Collection`, plus `Work.collections` (M2M) and `Source.{source_type, collection}`.
@@ -603,12 +656,27 @@ Staff users additionally see the full provenance (including `original_record`, W
     "original_record": { ... }             // staff/curators only
   },
   "metadata_sources": {                    // per-field attribution
-    "authors": "openalex",
+    "authors": "openalex",                 // … | datacite.creators (IGSN sample collector)
     "author_orcids": "openalex",           // openalex | openaire — source that wrote Author M2M links
-    "abstract": "openaire",                // crossref | openaire
-    "publisher": "openaire",               // volume/issue/first_page/last_page/language/publisher: openalex | openaire
-    "geometry": "DC.SpatialCoverage",      // … | reharvest_html (admin re-harvest)
-    "timeperiod": "reharvest_html"         // present when re-harvest overrode temporal extent
+    "abstract": "openaire",                // crossref | openaire | synthesised | synthesised+datacite.descriptions
+    "publisher": "openaire",               // volume/issue/first_page/last_page/language/publisher: openalex | openaire | datacite.publisher
+    "keywords": "datacite.subjects",       // IGSN sample materials
+    "placename": "datacite.geoLocationPlace", // IGSN samples (| gfz.landing_page); else set by Nominatim (see geocoding)
+    "geometry": "DC.SpatialCoverage",      // … | datacite.geoLocations | gfz.landing_page | reharvest_html
+    "timeperiod": "reharvest_html"         // … | datacite.dates[Collected]
+  },
+  "sample": {                              // IGSN physical sample metadata (#187)
+    "resource_type": "Specimen",           // DataCite types.resourceType (specific kind)
+    "materials": ["Rock"],                 // DataCite subjects (also → keywords)
+    "repositories": ["USGS ..."],          // DataCite contributors (hosting institution)
+    "place": "Oak Ridge NEON (ORNL), ...", // DataCite geoLocationPlace (or scraped)
+    "description": {                       // provenance of the synthesised abstract
+      "synthesised": true,
+      "synthesised_from": ["resource_type", "subjects", "collected_date",
+                           "geoLocationPlace", "publisher", "contributors",
+                           "related_identifiers"],  // fields actually used
+      "source_description_appended": false // true if a real DataCite description was appended
+    }
   },
   "openalex_match": {
     "status": "verified",                  // verified | unverified | none | skipped

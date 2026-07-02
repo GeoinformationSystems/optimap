@@ -163,6 +163,54 @@ def _crossref_session():
     return session
 
 
+# DataCite (IGSN samples) -----------------------------------------------------
+
+DATACITE_API_URL = "https://api.datacite.org/dois"
+DATACITE_USER_AGENT = settings.OPTIMAP_USER_AGENT
+DATACITE_HTTP_TIMEOUT = 60
+DATACITE_PAGE_SIZE = 100
+
+
+def _datacite_session():
+    """Return a requests.Session preconfigured with retries + polite UA for DataCite."""
+    session = requests.Session()
+    retry = Retry(
+        total=4,
+        backoff_factor=2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET"]),
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.headers.update(
+        {
+            "User-Agent": DATACITE_USER_AGENT,
+            "Accept": "application/json",
+        }
+    )
+    return session
+
+
+# GFZ IGSN landing pages ------------------------------------------------------
+
+GFZ_LANDING_URL = "https://dataservices.gfz-potsdam.de/igsn/esg/index.php"
+GFZ_USER_AGENT = settings.OPTIMAP_USER_AGENT
+GFZ_HTTP_TIMEOUT = 30
+
+
+def _gfz_session():
+    """Return a requests.Session for scraping GFZ IGSN landing pages (retries + polite UA)."""
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=1.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET"]),
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.headers.update({"User-Agent": GFZ_USER_AGENT})
+    return session
+
+
 # OpenAlex --------------------------------------------------------------------
 
 OPENALEX_API_URL = "https://api.openalex.org/works"

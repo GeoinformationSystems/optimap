@@ -37,6 +37,7 @@ from works.models import (
     WikidataExportLog,
     Work,
     WorkAuthor,
+    WorkRelation,
 )
 from works.tasks import (
     regenerate_all_data_dumps,
@@ -874,6 +875,15 @@ class SubscriptionAdmin(admin.ModelAdmin):
     list_filter = ("subscribed", "notification_interval")
     readonly_fields = ("last_notified",)
     actions = [send_subscription_emails, send_subscription_emails_scheduler, send_weekly_subscription_emails_scheduler]
+
+
+@admin.register(WorkRelation)
+class WorkRelationAdmin(admin.ModelAdmin):
+    list_display = ("from_work", "relation_type", "to_work", "to_identifier", "to_identifier_type", "source")
+    list_filter = ("relation_type", "to_identifier_type", "source")
+    search_fields = ("from_work__title", "from_work__doi", "to_work__title", "to_work__doi", "to_identifier")
+    raw_id_fields = ("from_work", "to_work")
+    readonly_fields = ("created_at",)
 
 
 @admin.register(UserProfile)

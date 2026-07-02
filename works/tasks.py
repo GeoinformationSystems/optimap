@@ -72,9 +72,18 @@ from works.harvesting.crossref import (  # noqa: F401
     parse_crossref_response_and_save_works,
     reharvest_work,
 )
+from works.harvesting.datacite import (  # noqa: F401
+    DATACITE_API_URL,
+    harvest_datacite,
+    parse_datacite_response_and_save_works,
+)
 from works.harvesting.geoscienceworld import (  # noqa: F401
     harvest_geoscienceworld,
     parse_gsw_response_and_save_works,
+)
+from works.harvesting.gfz_igsn import (  # noqa: F401
+    harvest_gfz_igsn,
+    scrape_gfz_and_save_works,
 )
 from works.harvesting.metadata_html import (  # noqa: F401
     _extract_dc_box,
@@ -156,6 +165,8 @@ harvest_crossref_prefix = log_scheduled_catchup(harvest_crossref_prefix)
 harvest_mountain_wetlands = log_scheduled_catchup(harvest_mountain_wetlands)
 harvest_openalex_source = log_scheduled_catchup(harvest_openalex_source)
 harvest_geoscienceworld = log_scheduled_catchup(harvest_geoscienceworld)
+harvest_datacite = log_scheduled_catchup(harvest_datacite)
+harvest_gfz_igsn = log_scheduled_catchup(harvest_gfz_igsn)
 CACHE_DIR = Path(tempfile.gettempdir()) / "optimap_cache"
 User = get_user_model()
 

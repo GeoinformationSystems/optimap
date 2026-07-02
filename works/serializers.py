@@ -240,6 +240,11 @@ class WorkSerializer(GeoFeatureModelSerializer):
         "permalink URLs. Authors without an ORCID are omitted here (their display names are "
         "still in the `authors` field). Ordered by authorship rank."
     )
+    related_works = serializers.SerializerMethodField(
+        help_text="Related works from the source metadata (e.g. DataCite relatedIdentifiers for "
+        "IGSN samples). Each entry has `relation_type`, the target `identifier` (+ `identifier_type`), "
+        "and — when the target is already in OPTIMAP — its `work_id` and `work_doi`."
+    )
 
     class Meta:
         model = Work
@@ -274,6 +279,7 @@ class WorkSerializer(GeoFeatureModelSerializer):
             "openalex_ids",
             "openalex_open_access_status",
             "locations",
+            "related_works",
         ]
 
     locations = serializers.JSONField(
@@ -309,6 +315,19 @@ class WorkSerializer(GeoFeatureModelSerializer):
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_region_names(self, obj):
         return obj.region_names
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_related_works(self, obj):
+        return [
+            {
+                "relation_type": rel.relation_type,
+                "identifier": rel.to_identifier,
+                "identifier_type": rel.to_identifier_type,
+                "work_id": rel.to_work_id,
+                "work_doi": rel.to_work.doi if rel.to_work_id else None,
+            }
+            for rel in obj.relations_from.all()
+        ]
 
     @extend_schema_field(
         serializers.ListField(
@@ -369,7 +388,9 @@ class WorkMinimalSerializer(GeoFeatureModelSerializer):
         model = Work
         geo_field = "geometry"
         auto_bbox = False
-        fields = ["id", "title", "doi", "status", "status_display"]
+        # `type` lets the map distinguish IGSN samples (physical-object) from
+        # publications for marker styling / the samples overlay (#187).
+        fields = ["id", "title", "doi", "status", "status_display", "type"]
 
 
 class SubscriptionSerializer(GeoFeatureModelSerializer):

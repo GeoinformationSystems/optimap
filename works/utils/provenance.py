@@ -14,10 +14,27 @@ Schema:
             "original_record": {...},   # source-specific raw record (optional)
         },
         "metadata_sources": {            # per-field origin
-            "authors": "openalex" | "original_source",
+            "authors": "openalex" | "original_source" | "datacite.creators",
             "author_orcids": "openalex" | "openaire",   # source that wrote Work.author_links (Author M2M)
-            "geometry": "DC.SpatialCoverage",
+            "geometry": "DC.SpatialCoverage" | "datacite.geoLocations" | "gfz.landing_page",
+            "abstract": "synthesised" | "synthesised+datacite.descriptions",  # IGSN samples (#187)
+            "keywords": "datacite.subjects",             # IGSN sample materials
+            "placename": "datacite.geoLocationPlace" | "gfz.landing_page",
             ...
+        },
+        "sample": {                       # IGSN physical sample metadata (#187)
+            "resource_type": "Specimen",  # DataCite types.resourceType (specific kind)
+            "materials": ["Rock"],        # DataCite subjects (→ keywords)
+            "repositories": ["USGS ..."], # DataCite contributors (hosting institution)
+            "place": "Oak Ridge NEON ...",# DataCite geoLocationPlace or scraped place
+            "description": {              # provenance of the synthesised abstract
+                "synthesised": True,
+                "synthesised_from": ["resource_type", "subjects", "collected_date",
+                                     "geoLocationPlace", "publisher", "contributors",
+                                     "related_identifiers"],  # fields actually used
+                "source_description_appended": False,  # True if a real DataCite
+                                                       # description was appended
+            },
         },
         "openalex_match": {
             "status": "verified" | "unverified" | "none",

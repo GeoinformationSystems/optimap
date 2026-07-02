@@ -17,6 +17,46 @@ def addstr(arg1, arg2):
     return str(arg1) + str(arg2)
 
 
+# Work type → Font Awesome icon (single source of truth, mirrored client-side in
+# static/js/map-popup.js `publicationTypeIconHTML`). Physical samples (#187) get a
+# vial, data a database, everything else a document. Keep the two in sync.
+_WORK_TYPE_ICONS = {
+    "physical-object": "fas fa-vial",
+    "dataset": "fas fa-database",
+    "database": "fas fa-database",
+}
+_WORK_TYPE_ICON_DEFAULT = "fas fa-file-lines"
+
+
+@register.filter
+def work_type_icon(work):
+    """Return the Font Awesome class for a Work (or a bare type string)."""
+    work_type = getattr(work, "type", work)
+    return _WORK_TYPE_ICONS.get(work_type, _WORK_TYPE_ICON_DEFAULT)
+
+
+# Human-readable tooltip for the placename's origin, keyed by the value recorded
+# in Work.provenance.metadata_sources.placename. IGSN samples carry an authoritative
+# place from DataCite / the GFZ landing page; everything else is reverse-geocoded.
+_PLACENAME_SOURCE_TIPS = {
+    "datacite.geoLocationPlace": (
+        "This location name was supplied by the sample's registrant via DataCite (geoLocationPlace)."
+    ),
+    "gfz.landing_page": "This location name was read from the sample's GFZ IGSN landing page.",
+}
+_PLACENAME_NOMINATIM_TIP = (
+    "This information was derived from the geometries of the work based on the Nominatim gazetteer."
+)
+
+
+@register.filter
+def placename_source_tip(work):
+    """Return the tooltip describing where a Work's placename came from (provenance-aware)."""
+    provenance = getattr(work, "provenance", None)
+    source = (provenance or {}).get("metadata_sources", {}).get("placename") if isinstance(provenance, dict) else None
+    return _PLACENAME_SOURCE_TIPS.get(source, _PLACENAME_NOMINATIM_TIP)
+
+
 @register.simple_tag
 def render_provenance(provenance):
     """Render a Work.provenance JSON dict as readable HTML.

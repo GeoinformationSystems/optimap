@@ -509,6 +509,112 @@ class Work(models.Model):
         super().save(*args, **kwargs)
 
 
+class WorkRelation(models.Model):
+    """
+    A directed, typed relationship from one Work to another resource.
+
+    Generic across all work types (publication↔sample, sample↔dataset,
+    work↔work) — nothing here is sample-specific. The target may be another
+    ``Work`` already in OPTIMAP (``to_work``) or, when the related resource has
+    not been harvested yet, a bare identifier (``to_identifier`` +
+    ``to_identifier_type``). The ``resolve_incoming_work_relations`` signal
+    (works/signals.py) upgrades an identifier-only relation to a ``to_work`` FK
+    once the target is harvested. ``to_identifier`` is always kept for
+    provenance, even after ``to_work`` is set.
+
+    Populated from DataCite ``relatedIdentifiers`` during IGSN-sample harvesting
+    (issue #187); relation types normalize a subset of the DataCite
+    relationType vocabulary via ``normalize_relation_type``.
+    """
+
+    RELATION_TYPE_CHOICES = [
+        ("references", "References"),
+        ("is_referenced_by", "Is referenced by"),
+        ("cites", "Cites"),
+        ("is_cited_by", "Is cited by"),
+        ("is_supplement_to", "Is supplement to"),
+        ("is_supplemented_by", "Is supplemented by"),
+        ("is_part_of", "Is part of"),
+        ("has_part", "Has part"),
+        ("is_derived_from", "Is derived from"),
+        ("is_source_of", "Is source of"),
+        ("related_to", "Related to"),  # generic fallback
+    ]
+
+    # Map DataCite relationType values (case-insensitive) to our canonical set.
+    # Anything unmapped falls back to "related_to".
+    _DATACITE_RELATION_MAP = {
+        "references": "references",
+        "isreferencedby": "is_referenced_by",
+        "cites": "cites",
+        "iscitedby": "is_cited_by",
+        "issupplementto": "is_supplement_to",
+        "issupplementedby": "is_supplemented_by",
+        "ispartof": "is_part_of",
+        "haspart": "has_part",
+        "isderivedfrom": "is_derived_from",
+        "issourceof": "is_source_of",
+    }
+
+    from_work = models.ForeignKey(Work, on_delete=models.CASCADE, related_name="relations_from")
+    to_work = models.ForeignKey(
+        Work,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="relations_to",
+        help_text="The related Work, once it exists in OPTIMAP. Null while the relation is still 'dangling'.",
+    )
+    to_identifier = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Identifier of the related resource (bare DOI, URL, IGSN, …). Kept for provenance even after to_work is set.",
+    )
+    to_identifier_type = models.CharField(
+        max_length=32, blank=True, default="", help_text="Type of to_identifier: DOI, URL, IGSN, Handle, …"
+    )
+    relation_type = models.CharField(max_length=32, choices=RELATION_TYPE_CHOICES, default="related_to")
+    source = models.CharField(
+        max_length=32, default="datacite", help_text="Provenance of this relation (datacite, manual, …)."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            # Two partial constraints instead of one 4-field constraint, because
+            # a single constraint over the nullable to_work treats NULLs as
+            # distinct on Postgres < 15 (and nulls_distinct=False is unsupported
+            # there — prod runs PG17, local dev PG14). Splitting by whether the
+            # relation is dangling avoids relying on NULL semantics entirely.
+            # to_identifier stays in the resolved key so two dangling rows with
+            # different identifiers never collide after they resolve to the same
+            # to_work.
+            models.UniqueConstraint(
+                fields=["from_work", "to_identifier", "relation_type"],
+                condition=Q(to_work__isnull=True),
+                name="uniq_work_relation_dangling",
+            ),
+            models.UniqueConstraint(
+                fields=["from_work", "to_work", "to_identifier", "relation_type"],
+                condition=Q(to_work__isnull=False),
+                name="uniq_work_relation_resolved",
+            ),
+        ]
+
+    def __str__(self):
+        target = self.to_work_id or self.to_identifier or "?"
+        return f"{self.from_work_id} {self.relation_type} {target}"
+
+    @classmethod
+    def normalize_relation_type(cls, datacite_value):
+        """Map a DataCite ``relationType`` string to our canonical value (fallback: related_to)."""
+        if not datacite_value:
+            return "related_to"
+        return cls._DATACITE_RELATION_MAP.get(datacite_value.strip().lower(), "related_to")
+
+
 class Subscription(models.Model):
     NOTIFICATION_INTERVAL_CHOICES = [
         ("weekly", "Weekly"),
@@ -960,6 +1066,8 @@ class Source(models.Model):
         ("mountain-wetlands", "Mountain Wetlands Repository"),
         ("openalex", "OpenAlex source"),
         ("geoscienceworld", "GeoScienceWorld"),
+        ("datacite", "DataCite (IGSN samples)"),
+        ("gfz-igsn", "GFZ IGSN (landing-page scrape)"),
     ]
 
     # Map source_type → Django-Q task path. Types not listed here cannot be auto-scheduled.
@@ -972,6 +1080,8 @@ class Source(models.Model):
         "mountain-wetlands": "works.tasks.harvest_mountain_wetlands",
         "openalex": "works.tasks.harvest_openalex_source",
         "geoscienceworld": "works.tasks.harvest_geoscienceworld",
+        "datacite": "works.tasks.harvest_datacite",
+        "gfz-igsn": "works.tasks.harvest_gfz_igsn",
     }
 
     url_field = models.URLField(
@@ -1158,6 +1268,16 @@ class Source(models.Model):
         choices=WORK_TYPE_CHOICES,
         default="article",
         help_text="Default work type assigned to works harvested from this source (can be overridden by OpenAlex metadata)",
+    )
+    harvest_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Per-source harvester configuration (JSON). Currently used by the DataCite "
+            "(IGSN) harvester for sampling filters — e.g. publisher, require_coordinates, "
+            "only_with_related_doi, bbox, date_from/date_to, resource_type, query, "
+            "max_records. Command-line flags override these for ad-hoc runs."
+        ),
     )
 
     class Meta:
