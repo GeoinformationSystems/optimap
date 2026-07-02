@@ -328,3 +328,36 @@ class GeoDataAlternativeTestCase(TestCase):
         # Raw FK integers and internal fields must be absent
         for absent in ("source", "job", "created_by", "updated_by", "status", "provenance"):
             self.assertNotIn(absent, props, f"'{absent}' should not appear in the dump")
+
+    def test_dump_skips_published_works_without_geometry(self):
+        """A published work with a NULL/empty geometry must not crash the dump.
+
+        Regression: ``regenerate_geojson_cache`` used to select every published
+        work regardless of geometry, so a single geometry-less work raised
+        ``AttributeError: 'NoneType' object has no attribute 'geojson'`` and took
+        down the whole scheduled ``regenerate_all_data_dumps`` run.
+        """
+        src = Source.objects.create(name="Geo Source", url_field="http://example.com/geo")
+        Work.objects.create(
+            title="Has Geometry",
+            doi="10.0001/hasgeom",
+            url="http://example.com/hasgeom",
+            geometry="GEOMETRYCOLLECTION(POINT(7.0 51.0))",
+            source=src,
+            status="p",
+        )
+        Work.objects.create(
+            title="No Geometry",
+            doi="10.0001/nogeom",
+            url="http://example.com/nogeom",
+            geometry=None,
+            source=src,
+            status="p",
+        )
+
+        path = regenerate_geojson_cache()
+        with open(path) as f:
+            data = json.load(f)
+
+        titles = {feat["properties"]["title"] for feat in data["features"]}
+        self.assertEqual(titles, {"Has Geometry"})

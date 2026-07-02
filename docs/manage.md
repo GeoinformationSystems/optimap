@@ -7,6 +7,30 @@ For a fully working setup, two processes must be live in addition to the web app
 - the database (PostGIS) — required for everything;
 - the Django-Q cluster (`python manage.py qcluster`) — required for harvesting, scheduled emails, and data dumps. The admin will accept actions without it, but they will silently sit in the queue.
 
+### Stopping and restarting the cluster
+
+`Ctrl+C` triggers Django-Q's **graceful** shutdown, which waits for the worker's in-flight task to finish. A throttled long-runner — notably the OpenAIRE enrichment sweep, which `sleep`s between requests (see [OpenAIRE enrichment](#openaire-enrichment)) — can hold that up for a long time, so `Ctrl+C` appears to "hang".
+
+For a clean stop that doesn't wait, signal the cluster process group instead:
+
+```bash
+pkill -TERM -f "manage.py qcluster"   # ask it to stop
+pkill -9    -f "manage.py qcluster"   # force-kill anything still lingering
+```
+
+`SIGTERM` first is preferred; escalate to `-9` (SIGKILL) only for stragglers. Killing the whole `manage.py qcluster` match covers the cluster parent, its sentinel, and every worker in one go (killing just the parent PID orphans the sentinel/workers). Verify nothing survives with `pgrep -af "manage.py qcluster"`, then restart with `python manage.py qcluster`.
+
+**A force-killed worker leaves its in-flight task un-acked in the broker.** With the default `Q_CLUSTER` `retry` window and `max_attempts`, Django-Q re-queues that task when the cluster comes back up. That is usually fine (the OpenAIRE sweep, for one, is idempotent — it skips works it has already consulted and resumes at the tail). If you would rather the restarted cluster **not** replay a stuck or failing task, clear the queued/failed tasks before restarting:
+
+- **Django admin:** delete the rows under **Django Q → Queued tasks** (waiting) and **Django Q → Failed tasks** (already errored).
+- **`manage.py shell`:**
+  ```python
+  from django_q.models import OrmQ, Task
+  OrmQ.objects.all().delete()                       # drop everything still queued in the broker
+  Task.objects.filter(success=False).delete()       # drop recorded failures
+  ```
+  `OrmQ` is the broker's pending-task queue (the "Queued tasks" admin list); `Task` rows are completed results, so filtering on `success=False` targets the "Failed tasks" list. Narrow either query (e.g. by `name`/`func`) to drop only a specific stuck task rather than all of them.
+
 ## Manage harvesting
 
 Sources and harvesting events are managed entirely through the Django admin under `/admin/works/source/` and `/admin/works/harvestingevent/`. As of v0.12.0 (issue #228) the `Source` model is registered with a dedicated admin and `HarvestingEvent` exposes the full per-run log, error message, and record counts.

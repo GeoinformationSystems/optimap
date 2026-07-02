@@ -1590,8 +1590,17 @@ def regenerate_geojson_cache():
     json_filename = generate_data_dump_filename("geojson")
     json_path = os.path.join(cache_dir, json_filename)
 
+    # Only published works that actually carry a geometry belong in the spatial
+    # dump: a NULL/empty geometry cannot become a GeoJSON feature, and the
+    # ``else`` branch below dereferences ``w.geometry.geojson``. Every other
+    # spatial queryset in the app applies the same guard — omitting it here let a
+    # single geometry-less published work crash the whole dump regeneration.
     works_qs = annotate_rounded_geometry(
-        Work.objects.filter(status="p").select_related("source").prefetch_related("collections", "countries")
+        Work.objects.filter(status="p")
+        .exclude(geometry__isnull=True)
+        .exclude(geometry__isempty=True)
+        .select_related("source")
+        .prefetch_related("collections", "countries")
     )
 
     base_url = settings.BASE_URL.rstrip("/")
