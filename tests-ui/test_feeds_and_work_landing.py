@@ -24,6 +24,7 @@ from helium import (
     get_driver,
     kill_browser,
     start_chrome,
+    wait_until,
 )
 
 from works.models import Work
@@ -80,6 +81,11 @@ class FeedsAndWorkLandingTests(StaticLiveServerTestCase):
             page_text = driver.page_source.lower()
             self.assertTrue("europe" in page_text and "feed" in page_text, "Page should contain 'Europe' and 'feed'")
 
+            # The map container is static markup (not async-rendered), but
+            # start_chrome() can return before Selenium's DOM/element lookup
+            # is ready for this heavier page (SEO meta tags, JSON-LD, etc.) —
+            # wait for it instead of racing it.
+            wait_until(lambda: S("#feed-map").exists(), timeout_secs=10)
             self.assertTrue(S("#feed-map").exists(), "Page should have a map")
 
             # Take screenshot

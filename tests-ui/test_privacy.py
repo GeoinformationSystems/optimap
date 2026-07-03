@@ -4,11 +4,18 @@
 import os
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core.cache import caches
 from django.urls import reverse
 from helium import click, get_driver, kill_browser, start_chrome
 
 
 class PrivacypageTests(StaticLiveServerTestCase):
+    def setUp(self):
+        # /privacy/ is @cache_page(cache="memory"); clear it so each test sees
+        # a fresh render rather than a cached response from an earlier test
+        # (assertTemplateUsed fails on a cache hit since nothing is rendered).
+        caches["memory"].clear()
+
     def test_privacy_link(self):
         start_chrome(f"{self.live_server_url}/", headless=True)
         click("privacy")

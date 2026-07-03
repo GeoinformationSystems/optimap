@@ -45,8 +45,15 @@ class SimpleTest(StaticLiveServerTestCase):
 
         self.assertTrue(S("#map").exists())
 
+        # Geometries are drawn after an async fetch('/api/v1/works/...') in
+        # main.js, not on initial page load — wait for it instead of racing it.
+        # 4 paths for 3 published works in test_data_optimap.json: "The First
+        # Article" carries a GeometryCollection of a Point *and* a Polygon, and
+        # Leaflet draws each sub-geometry as its own <path> (a CircleMarker's
+        # circle is an SVG path too), so that one work contributes 2 paths.
+        wait_until(lambda: len(find_all(S("path.leaflet-interactive"))) >= 4, timeout_secs=10)
         leaflet_paths = find_all(S("path.leaflet-interactive"))
-        self.assertEqual(len(leaflet_paths), 3)  # has geometries on the map from test_data_optimap.json
+        self.assertEqual(len(leaflet_paths), 4)
         for path in leaflet_paths:
             self.assertEqual(path.web_element.get_attribute("stroke"), "#158F9B")
 

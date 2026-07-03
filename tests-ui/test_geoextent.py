@@ -5,6 +5,7 @@ import os
 import unittest
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core.cache import caches
 from django.test import TestCase
 from django.urls import reverse
 from helium import Button, Text, click, get_driver, kill_browser, start_chrome, wait_until
@@ -12,6 +13,12 @@ from helium import Button, Text, click, get_driver, kill_browser, start_chrome, 
 
 class GeoextentPageTests(TestCase):
     """UI tests for the geoextent extraction page."""
+
+    def setUp(self):
+        # /geoextent/ is @cache_page(cache="memory"); clear it so each test
+        # sees a fresh render rather than a cached response from an earlier
+        # test (assertTemplateUsed fails on a cache hit since nothing renders).
+        caches["memory"].clear()
 
     def test_url_exists_at_correct_location(self):
         """Test that the geoextent URL returns 200."""
@@ -186,7 +193,14 @@ class GeoextentUIInteractionTests(StaticLiveServerTestCase):
             self.assertFalse(Text("Output format").exists())
             self.assertFalse(Text("Gazetteer service").exists())
 
-            click("Extraction options")
+            # The site footer is fixed-bottom and can overlap this card header
+            # in the small headless viewport, so click() sometimes hits the
+            # footer instead — scroll the header to the middle of the
+            # viewport first so the real click lands on it.
+            driver = get_driver()
+            header = driver.find_element("css selector", '[data-target="#extraction-options-body"]')
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", header)
+            header.click()
 
             # Check all option labels exist
             wait_until(lambda: Text("Bounding box").exists(), timeout_secs=5)
@@ -225,14 +239,23 @@ class GeoextentUIInteractionTests(StaticLiveServerTestCase):
         try:
             start_chrome(f"{self.live_server_url}/pages/", headless=True)
 
-            # Click geoextent link in footer
-            click("Geoextent")
+            # The page also has a "Geoextent" entry in the (collapsed, hidden)
+            # burger-menu dropdown from base.html — click("Geoextent") can
+            # match that one first and no-op instead of navigating, so target
+            # the visible sitemap link explicitly.
+            driver = get_driver()
+            sitemap_link = next(
+                el for el in driver.find_elements("partial link text", "Geoextent") if el.is_displayed()
+            )
+            # The site footer is fixed-bottom and can overlap sitemap entries
+            # low on the page in the small headless viewport.
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", sitemap_link)
+            sitemap_link.click()
 
             # Wait for page to load
             wait_until(lambda: Text("Geoextent extraction").exists(), timeout_secs=5)
 
             # Check URL changed
-            driver = get_driver()
             self.assertIn("geoextent", driver.current_url)
 
         finally:

@@ -5,10 +5,16 @@ import os
 import time
 import unittest
 
+from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from helium import *
 
 
-class MainpageTest(unittest.StaticLiveServerTestCase):
+class MainpageTest(StaticLiveServerTestCase):
+    @unittest.skip(
+        "Timeline feature is disabled: works/templates/main.html has both the "
+        "timeline_snippet.html include and js/timeline.js commented out, so no "
+        "'Timeline' button exists on the page to click."
+    )
     def test_timeline_navigation(self):
         """Test timeline button and visualization."""
         start_chrome(f"{self.live_server_url}/", headless=True)
