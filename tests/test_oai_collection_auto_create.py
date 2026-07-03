@@ -85,9 +85,12 @@ class HarvestOaiEndpointAutoCreatesCollectionTests(TestCase):
         )
         self.assertIsNone(self.source.collection)
 
+    @patch("works.harvesting.sessions._oai_session")
     @patch("works.harvesting.oai._oai_session")
     @patch("works.harvesting.oai.parse_oai_xml_and_save_works")
-    def test_first_harvest_creates_collection_and_links_source(self, mock_parser, mock_session_factory):
+    def test_first_harvest_creates_collection_and_links_source(
+        self, mock_parser, mock_session_factory, mock_stats_session_factory
+    ):
         from works.tasks import harvest_oai_endpoint
 
         # Bare-minimum OAI-PMH XML so the upstream sniff passes.
@@ -99,6 +102,12 @@ class HarvestOaiEndpointAutoCreatesCollectionTests(TestCase):
         mock_session = Mock()
         mock_session.get.return_value = fake_response
         mock_session_factory.return_value = mock_session
+        # complete_harvest()'s fetch_and_store_oai_works_count() imports
+        # _oai_session from works.harvesting.sessions directly (not the
+        # works.harvesting.oai re-export the harvester itself uses), so without
+        # this second patch it makes a real HTTP request to the fake
+        # `demo.example` host and burns ~10s per test on DNS-failure retries.
+        mock_stats_session_factory.return_value = mock_session
 
         harvest_oai_endpoint(self.source.id)
 
@@ -113,9 +122,10 @@ class HarvestOaiEndpointAutoCreatesCollectionTests(TestCase):
         # so the event has the new source.collection_id at creation time).
         self.assertTrue(HarvestingEvent.objects.filter(source=self.source).exists())
 
+    @patch("works.harvesting.sessions._oai_session")
     @patch("works.harvesting.oai._oai_session")
     @patch("works.harvesting.oai.parse_oai_xml_and_save_works")
-    def test_second_harvest_reuses_collection(self, mock_parser, mock_session_factory):
+    def test_second_harvest_reuses_collection(self, mock_parser, mock_session_factory, mock_stats_session_factory):
         from works.tasks import harvest_oai_endpoint
 
         fake_response = Mock()
@@ -126,6 +136,10 @@ class HarvestOaiEndpointAutoCreatesCollectionTests(TestCase):
         mock_session = Mock()
         mock_session.get.return_value = fake_response
         mock_session_factory.return_value = mock_session
+        # See test_first_harvest_creates_collection_and_links_source for why
+        # this second patch is needed (fetch_and_store_oai_works_count imports
+        # _oai_session from works.harvesting.sessions directly).
+        mock_stats_session_factory.return_value = mock_session
 
         harvest_oai_endpoint(self.source.id)
         self.source.refresh_from_db()
@@ -138,9 +152,10 @@ class HarvestOaiEndpointAutoCreatesCollectionTests(TestCase):
         )
         self.assertEqual(Collection.objects.count(), 1)
 
+    @patch("works.harvesting.sessions._oai_session")
     @patch("works.harvesting.oai._oai_session")
     @patch("works.harvesting.oai.parse_oai_xml_and_save_works")
-    def test_preassigned_collection_is_left_alone(self, mock_parser, mock_session_factory):
+    def test_preassigned_collection_is_left_alone(self, mock_parser, mock_session_factory, mock_stats_session_factory):
         from works.tasks import harvest_oai_endpoint
 
         preassigned = Collection.objects.create(
@@ -159,6 +174,10 @@ class HarvestOaiEndpointAutoCreatesCollectionTests(TestCase):
         mock_session = Mock()
         mock_session.get.return_value = fake_response
         mock_session_factory.return_value = mock_session
+        # See test_first_harvest_creates_collection_and_links_source for why
+        # this second patch is needed (fetch_and_store_oai_works_count imports
+        # _oai_session from works.harvesting.sessions directly).
+        mock_stats_session_factory.return_value = mock_session
 
         harvest_oai_endpoint(self.source.id)
 

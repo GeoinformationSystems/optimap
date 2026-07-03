@@ -75,6 +75,14 @@ GEOCODE_WORKS_ON_SAVE = env(
     default=False if _RUNNING_TESTS else True,
 )
 
+if _RUNNING_TESTS:
+    # The default PBKDF2 hasher costs ~250-300ms per password (by design, to
+    # resist brute-forcing in production). The test suite creates/logs in as
+    # hundreds of users, so that cost alone accounts for a large share of the
+    # suite's wall-clock time. MD5 has none of PBKDF2's iteration cost and is
+    # fine here since test passwords are neither secret nor real.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
 ROOT_URLCONF = "optimap.urls"
 
 DATA_DUMP_RETENTION = int(os.getenv("OPTIMAP_DATA_DUMP_RETENTION", 3))
