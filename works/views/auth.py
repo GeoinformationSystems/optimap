@@ -37,7 +37,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 
 from works.models import (
     BlockedDomain,
@@ -183,7 +183,7 @@ def login_user(request, user):
     user.save()
 
 
-@require_GET
+@require_http_methods(["GET", "POST"])
 def authenticate_via_magic_link(request, token):
     cache_data = cache.get(token)
     logger.info("Authenticating magic link with token %s: Found data: %s", token, cache_data)
@@ -211,50 +211,52 @@ def authenticate_via_magic_link(request, token):
         next_url = "/"
 
     user = User.objects.filter(email=email).first()
-    if user:
-        is_new = False
-        needs_confirmation = False
-        login_user(request, user)
-        # Store next URL in session for redirect after confirmation
-        request.session["login_redirect_url"] = next_url
-    elif request.GET.get("confirmed", None) == "true":
-        user, is_new = User.objects.get_or_create(
+    is_new = user is None
+
+    # GET never authenticates: it only shows a confirmation page. This is
+    # deliberate — a GET can be triggered by something other than the
+    # intended human click (double-click, duplicate tab, a mail client/
+    # security gateway prefetching links in the email before delivery), and
+    # letting that silently log a user in previously caused two problems:
+    # a security issue (an automated fetch could consume the one-time link),
+    # and a crash (concurrent GETs both calling login() raced on Django's
+    # session cycling and raised SessionInterrupted). Actual authentication
+    # only happens on the POST below, which requires a CSRF token and is not
+    # something a plain link-follower can trigger.
+    if request.method == "GET":
+        return render(
+            request,
+            "confirmation_login.html",
+            {"email": email, "token": token, "is_new": is_new, "next": next_url},
+        )
+
+    if is_new:
+        user, created = User.objects.get_or_create(
             username=email,
             defaults={"username": email, "email": email},
         )
-        if not is_new and not user.email:
+        if not created and not user.email:
             user.email = email
             user.save()
-        needs_confirmation = False
         # First-time confirmed registration: tell the admins. Imported
         # locally to keep this view import-graph free of django_q at import
         # time. Errors inside notify_* never propagate (defensive try/except).
-        if is_new:
+        if created:
             from works.notifications import notify_admins_new_user_registered
 
             notify_admins_new_user_registered(user)
             UserProfile.objects.filter(user=user).update(consented_at=timezone.now())
         login_user(request, user)
+        cache.delete(token)
         messages.success(request, "Welcome to OPTIMAP!")
         logger.info("User %s logged in successfully, redirecting to %s", email, next_url)
-        return HttpResponseRedirect(next_url)
     else:
-        is_new = True
-        needs_confirmation = True
-        # Store next URL for redirect after confirmation
-        request.session["login_redirect_url"] = next_url
-
-    # If user is already authenticated and doesn't need confirmation, redirect
-    if not needs_confirmation and user:
+        login_user(request, user)
+        cache.delete(token)
         messages.success(request, "Welcome back to OPTIMAP!")
         logger.info("User %s authenticated, redirecting to %s", email, next_url)
-        return HttpResponseRedirect(next_url)
 
-    return render(
-        request,
-        "confirmation_login.html",
-        {"email": email, "token": token, "is_new": is_new, "needs_confirmation": needs_confirmation, "next": next_url},
-    )
+    return HttpResponseRedirect(next_url)
 
 
 @login_required

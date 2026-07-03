@@ -4,16 +4,25 @@
 {% extends "main.html" %}
 
 {% block alert %}
-{% if needs_confirmation %}
 <div class="alert alert-primary m-3" role="alert">
   <button type="button" class="close" data-dismiss="alert" aria-label="Close">&times;</button>
+  {% if is_new %}
   <strong>Welcome to OPTIMAP!</strong>
   Your email {{ email }} works. By clicking the button below, you consent to the processing
   of your personal data in accordance with the
   <a href="{% url 'optimap:privacy' %}">privacy policy</a>.
+  {% else %}
+  <strong>Welcome back to OPTIMAP!</strong>
+  Click the button below to finish logging in as {{ email }}.
+  {% endif %}
   <br/>
-  <a href="{{ token }}?confirmed=true" class="btn btn-primary btn-sm my-2 p-2"
-     role="button" aria-pressed="true">I consent</a>
+  {% if token %}
+  <form method="post" action="{% url 'optimap:magic_link' token %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary btn-sm my-2 p-2">
+      {% if is_new %}I consent{% else %}Log in{% endif %}
+    </button>
+  </form>
+  {% endif %}
 </div>
-{% endif %}
 {% endblock %}

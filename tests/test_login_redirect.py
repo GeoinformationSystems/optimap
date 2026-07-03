@@ -39,6 +39,19 @@ class LoginRedirectTests(TestCase):
         self.assertIn("next=", response.url)
         self.assertIn("/subscriptions/", response.url)
 
+    def test_magic_link_get_shows_confirmation_without_logging_in(self):
+        """A GET to the magic link must not authenticate (avoids link
+        prefetching silently consuming/racing the one-time token); it only
+        shows the confirmation page. Actual login happens on POST."""
+        cache_data = {"email": self.user.email, "next": "/subscriptions/"}
+        token = "test_token_12345"
+        cache.set(token, cache_data, timeout=600)
+
+        response = self.client.get(reverse("optimap:magic_link", args=[token]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.client.session.get("_auth_user_id"))
+
     def test_magic_link_redirects_to_next_after_login(self):
         """Test that magic link authentication redirects to next URL"""
         # Manually create a cache entry with next parameter
@@ -46,8 +59,8 @@ class LoginRedirectTests(TestCase):
         token = "test_token_12345"
         cache.set(token, cache_data, timeout=600)
 
-        # Access the magic link
-        response = self.client.get(reverse("optimap:magic_link", args=[token]))
+        # Confirm the magic link (POST performs the actual login)
+        response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         # Should redirect to subscriptions page
         self.assertEqual(response.status_code, 302)
@@ -63,8 +76,8 @@ class LoginRedirectTests(TestCase):
         token = "test_token_54321"
         cache.set(token, cache_data, timeout=600)
 
-        # Access the magic link
-        response = self.client.get(reverse("optimap:magic_link", args=[token]))
+        # Confirm the magic link (POST performs the actual login)
+        response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         # Should redirect to root page
         self.assertEqual(response.status_code, 302)
@@ -117,7 +130,7 @@ class LoginRedirectTests(TestCase):
         token = "notification_token"
         cache.set(token, cache_data, timeout=600)
 
-        response = self.client.get(reverse("optimap:magic_link", args=[token]), follow=True)
+        response = self.client.post(reverse("optimap:magic_link", args=[token]), follow=True)
 
         # Should end up on subscriptions page
         self.assertEqual(response.status_code, 200)

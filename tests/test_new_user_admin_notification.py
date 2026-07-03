@@ -71,7 +71,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("brand-new@example.org")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(User.objects.filter(email="brand-new@example.org").exists())
@@ -101,7 +101,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link(existing.email, token="tok-returning")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]))
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(len(mail.outbox), 0)
@@ -125,7 +125,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("loneranger@example.org")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(User.objects.filter(email="loneranger@example.org").exists())
@@ -142,7 +142,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("freshie@example.org")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            self.client.post(reverse("optimap:magic_link", args=[token]))
 
         recipients = sorted(addr for m in mail.outbox for addr in m.to)
         self.assertNotIn("", recipients)
@@ -160,7 +160,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("fresh-active@example.org")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            self.client.post(reverse("optimap:magic_link", args=[token]))
 
         recipients = sorted(addr for m in mail.outbox for addr in m.to)
         self.assertNotIn("inactive-admin@optimap.example", recipients)
@@ -173,7 +173,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("fresh-optout@example.org")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            self.client.post(reverse("optimap:magic_link", args=[token]))
 
         recipients = sorted(addr for m in mail.outbox for addr in m.to)
         self.assertNotIn("admin2@optimap.example", recipients)
@@ -188,7 +188,7 @@ class NewUserAdminNotificationTests(TestCase):
             "django_q.tasks.async_task",
             side_effect=RuntimeError("queue offline"),
         ):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(User.objects.filter(email="resilient@example.org").exists())
@@ -206,7 +206,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("case@example.org", token="tok-case")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]))
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         # No duplicate created.
@@ -219,7 +219,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("newcomer@example.org")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         user = User.objects.get(email="newcomer@example.org")
@@ -236,7 +236,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link(existing.email, token="tok-veteran")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            self.client.get(reverse("optimap:magic_link", args=[token]))
+            self.client.post(reverse("optimap:magic_link", args=[token]))
 
         profile = UserProfile.objects.get(user=existing)
         self.assertIsNone(profile.consented_at)
@@ -274,7 +274,7 @@ class NewUserAdminNotificationTests(TestCase):
         token = self._prime_magic_link("dup@example.org", token="tok-dup")
 
         with patch("django_q.tasks.async_task", side_effect=_run_async_synchronously):
-            response = self.client.get(reverse("optimap:magic_link", args=[token]) + "?confirmed=true")
+            response = self.client.post(reverse("optimap:magic_link", args=[token]))
 
         self.assertEqual(response.status_code, 302)
         # Exactly one user — no duplicate.

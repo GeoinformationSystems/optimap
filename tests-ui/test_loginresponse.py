@@ -47,15 +47,19 @@ class LoginresponseTest(StaticLiveServerTestCase):
             # Verify success message appears
             self.assertTrue(Text("We sent a login link").exists(), "Login response message not found")
 
-            # Now test the actual login using the token
+            # Now test the actual login using the token. GET only shows a
+            # confirmation page (it must not authenticate on its own — see
+            # the SessionInterrupted/link-prefetch regression this guards
+            # against); the POST triggered by the button below performs the
+            # actual login.
             go_to(f"{self.live_server_url}/login/{self.token}")
             sleep(3)
 
-            # Check if we need to confirm (new user) or are logged in (existing user)
-            if Text("I consent").exists():
-                # New user - needs confirmation
-                click(Link("I consent"))
-                sleep(2)
+            if Button("I consent").exists():
+                click(Button("I consent"))
+            else:
+                click(Button("Log in"))
+            sleep(2)
 
             # Verify we're logged in by checking for user menu
             click(S("#unifiedMenuDropdown"))
