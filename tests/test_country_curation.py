@@ -11,6 +11,7 @@ from django.contrib.gis.geos import GeometryCollection, MultiPolygon, Point, Pol
 from django.core.cache import caches
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils.text import slugify
 
 from works.models import SENTINEL_COUNTRY_ISO, Country, Work
 from works.tasks import backfill_work_countries
@@ -29,8 +30,16 @@ class _Base(TestCase):
         self.user = User.objects.create_user(username="joe", email="joe@example.org", password="x")
         self.de = Country.objects.create(name="Germany", iso_code="DE", geom=_box(5, 47, 10, 55))
         self.pl = Country.objects.create(name="Poland", iso_code="PL", geom=_box(10, 47, 20, 55))
-        # The sentinel row is created by migration 0032_country_sentinel.
-        self.sentinel = Country.objects.get(iso_code=SENTINEL_COUNTRY_ISO)
+        # The sentinel row is created by migration 0032_country_sentinel. A
+        # TransactionTestCase elsewhere in the suite (e.g.
+        # tests.test_ogcapi.OgcApiEndpointTest) truncates this table via
+        # `flush` without re-seeding it, so re-create it here to avoid
+        # depending on suite run order.
+        name = "No country / not applicable"
+        self.sentinel, _ = Country.objects.get_or_create(
+            iso_code=SENTINEL_COUNTRY_ISO,
+            defaults={"name": name, "slug": slugify(name), "geom": MultiPolygon(srid=4326)},
+        )
 
     def _unmatched_work(self, **kw):
         # GEOCODE_WORKS_ON_SAVE defaults off in tests, so no auto-linking.

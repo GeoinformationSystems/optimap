@@ -14,6 +14,76 @@ _CACHES = {
     "dummy": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"},
 }
 
+# Rows seeded by migrations 0036_basemaplayer_seed / 0037_seed_basemapworld_vector.
+# Migrations only run once at `migrate` time; a TransactionTestCase elsewhere in
+# the suite (e.g. tests.test_ogcapi.OgcApiEndpointTest) truncates this table via
+# `flush` without re-seeding it, so tests that depend on these rows re-create
+# them here to avoid depending on suite run order.
+_SEEDED_LAYERS = [
+    {
+        "provider_key": "OpenStreetMap.Mapnik",
+        "label": "OpenStreetMap",
+        "enabled": True,
+        "is_default": True,
+        "order": 0,
+    },
+    {
+        "provider_key": "CartoDB.Voyager",
+        "label": "CARTO (English labels)",
+        "enabled": True,
+        "is_default": False,
+        "order": 1,
+    },
+    {
+        "provider_key": "Esri.WorldImagery",
+        "label": "Esri World Imagery (satellite)",
+        "enabled": True,
+        "is_default": False,
+        "order": 2,
+    },
+    {
+        "provider_key": "OpenTopoMap",
+        "label": "OpenTopoMap (topographic)",
+        "enabled": True,
+        "is_default": False,
+        "order": 3,
+    },
+    {
+        "provider_key": "CartoDB.Positron",
+        "label": "CARTO Positron (light)",
+        "enabled": False,
+        "is_default": False,
+        "order": 10,
+    },
+    {
+        "provider_key": "Esri.WorldStreetMap",
+        "label": "Esri World Street Map",
+        "enabled": False,
+        "is_default": False,
+        "order": 11,
+    },
+    {
+        "provider_key": "Stadia.AlidadeSmooth",
+        "label": "Stadia Alidade Smooth",
+        "enabled": False,
+        "is_default": False,
+        "order": 12,
+    },
+    {
+        "provider_key": "BasemapWorldVector",
+        "label": "basemap.world (vector, BKG)",
+        "enabled": False,
+        "is_default": False,
+        "order": 20,
+        "options": {"style": "https://sgx.geodatenzentrum.de/gdz_basemapworld_vektor/styles/bm_web_wld_col.json"},
+    },
+]
+
+
+def _ensure_basemap_seed():
+    for data in _SEEDED_LAYERS:
+        BaseMapLayer.objects.get_or_create(provider_key=data["provider_key"], defaults=data)
+
 
 class BaseMapLayerModelTest(TestCase):
     def setUp(self):
@@ -75,6 +145,9 @@ class BaseMapLayerModelTest(TestCase):
 
 class BaseMapLayerSeedMigrationTest(TestCase):
     """Verify the seed migration created the expected rows."""
+
+    def setUp(self):
+        _ensure_basemap_seed()
 
     def test_osm_is_enabled_and_default(self):
         osm = BaseMapLayer.objects.get(provider_key="OpenStreetMap.Mapnik")
@@ -207,6 +280,7 @@ class PrivacyPolicyTest(TestCase):
 
         for alias in caches:
             caches[alias].clear()
+        _ensure_basemap_seed()
 
     def test_privacy_page_mentions_carto_when_enabled(self):
         response = self.client.get("/privacy/")
