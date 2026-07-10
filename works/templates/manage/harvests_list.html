@@ -1,0 +1,74 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+
+{% block title %}Manage harvests | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-11 col-lg-10">
+      {% include "manage/_nav_tabs.html" with active="harvests" %}
+
+      <h1 class="mb-4">Harvests</h1>
+
+      <form method="get" class="form-inline mb-3">
+        <label for="status" class="sr-only">Status</label>
+        <select id="status" name="status" class="form-control mr-2">
+          <option value="">All statuses</option>
+          {% for value, label in statuses %}
+          <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <label for="source" class="sr-only">Source</label>
+        <select id="source" name="source" class="form-control mr-2">
+          <option value="">All sources</option>
+          {% for s in sources %}
+          <option value="{{ s.id }}" {% if selected_source == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+        <label for="trigger_source" class="sr-only">Trigger</label>
+        <select id="trigger_source" name="trigger_source" class="form-control mr-2">
+          <option value="">Any trigger</option>
+          {% for value, label in trigger_sources %}
+          <option value="{{ value }}" {% if value == selected_trigger_source %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-outline-secondary">Filter</button>
+      </form>
+
+      <div class="table-responsive">
+        <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Trigger</th>
+              <th>Started</th>
+              <th>Added</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in page_obj %}
+            <tr>
+              <td><a href="{% url 'optimap:manage-harvest-detail' event.id %}">{{ event.source.name }}</a></td>
+              <td><a href="{% url 'optimap:manage-harvest-detail' event.id %}">{% include "manage/_status_badge.html" %}</a></td>
+              <td class="small text-muted">{{ event.get_trigger_source_display }}</td>
+              <td class="small text-muted">{{ event.started_at|date:"Y-m-d\TH:i" }}</td>
+              <td>{{ event.records_added|default:"—" }}</td>
+              <td>{{ event.records_updated|default:"—" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-muted text-center p-4">No harvesting events found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% include "_pagination_nav.html" with pagination_label="harvests pagination" %}
+    </div>
+  </div>
+</div>
+{% endblock content %}

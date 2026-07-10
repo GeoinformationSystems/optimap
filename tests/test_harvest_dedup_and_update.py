@@ -331,6 +331,44 @@ class SaveOrUpdateHelperTests(TestCase):
         self.assertEqual(Work.objects.count(), 1)
         self.assertEqual(Work.objects.get().source_id, self.source.id)
 
+    def test_author_records_is_not_a_real_work_field_and_is_stripped(self):
+        # Regression: build_openalex_fields() propagates author_records (for
+        # link_openalex_authors() to read after the save), and several
+        # harvesters build work_kwargs via dict(..., **openalex_fields) — so
+        # author_records ends up in work_kwargs too. Work has no such field;
+        # Work.objects.create(**work_kwargs) must not choke on it.
+        from works.tasks import _save_or_update_work
+
+        records = [{"name": "A. Author", "orcid": "0000-0001-2345-6789", "openalex_id": "A1", "rank": 0}]
+        work, action = _save_or_update_work(self._kwargs(author_records=records), self.source, None)
+        self.assertEqual(action, "created")
+        self.assertIsNotNone(work.pk)
+
+    def test_author_records_not_mutated_out_of_callers_dict(self):
+        # link_openalex_authors(work, kwargs) is called by several harvesters
+        # right after _save_or_update_work(kwargs, ...) using the *same* dict
+        # — stripping author_records must not mutate the caller's copy.
+        from works.tasks import _save_or_update_work
+
+        records = [{"name": "A. Author", "orcid": "0000-0001-2345-6789", "openalex_id": "A1", "rank": 0}]
+        kwargs = self._kwargs(author_records=records)
+        _save_or_update_work(kwargs, self.source, None)
+        self.assertEqual(kwargs["author_records"], records)
+
+    def test_author_records_stripped_on_update_path_too(self):
+        from works.tasks import _save_or_update_work
+
+        _save_or_update_work(self._kwargs(), self.source, None)
+        records = [{"name": "A. Author", "orcid": "0000-0001-2345-6789", "openalex_id": "A1", "rank": 0}]
+        work, action = _save_or_update_work(
+            self._kwargs(author_records=records, abstract="updated"),
+            self.source,
+            None,
+            update_existing=True,
+        )
+        self.assertEqual(action, "updated")
+        self.assertEqual(work.abstract, "updated")
+
 
 class EmptyDoiBackfillTests(TestCase):
     """Targeted DOI backfill: when a re-harvest delivers a DOI for an

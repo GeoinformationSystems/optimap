@@ -17,7 +17,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -25,7 +25,7 @@ from django.utils.cache import add_never_cache_headers
 from django.utils.html import strip_tags
 from django.views.decorators.http import require_POST
 
-from .models import STATUS_CHOICES, Collection, Source, Work
+from .models import STATUS_CHOICES, Collection, HarvestingEvent, Source, Work
 
 User = get_user_model()
 from .seo import coins_title
@@ -166,7 +166,19 @@ def collection_page(request, collection_slug):
         # Include sources whose default collection is this one (FK) AND any
         # source that actually has works here — the two sets can diverge (e.g.
         # an intermediary platform harvested under a different Source record).
-        sources = list(Source.objects.filter(Q(collection=collection) | Q(works__collections=collection)).distinct())
+        # last_harvest_at as a correlated Subquery (not a plain annotate+Max)
+        # so it doesn't join through HarvestingEvent into the same query as the
+        # works__collections join above — that join already fans out one row
+        # per work, and adding a second join for events would multiply rows
+        # again before the GROUP BY collapses them back down.
+        latest_event_at = (
+            HarvestingEvent.objects.filter(source=OuterRef("pk")).order_by("-started_at").values("started_at")[:1]
+        )
+        sources = list(
+            Source.objects.filter(Q(collection=collection) | Q(works__collections=collection))
+            .distinct()
+            .annotate(last_harvest_at=Subquery(latest_event_at))
+        )
         # Per-source work counts in OPTIMAP — single query, avoid N+1.
         status_counts = (
             Work.objects.filter(collections=collection, source__in=sources)
@@ -187,6 +199,7 @@ def collection_page(request, collection_slug):
                     "name": src.name,
                     "source_type": src.source_type,
                     "openalex_id": src.openalex_id,
+                    "last_harvest_at": src.last_harvest_at,
                     "has_openalex_count": oa_count is not None,
                     "openalex_works_count": oa_count,
                     "openalex_fetched_at": stats_data.get("openalex_fetched_at", "")[:10],

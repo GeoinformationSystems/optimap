@@ -113,7 +113,7 @@ def _enqueue_harvest(sources, request, modeladmin):
         if not task_func:
             skipped.append((source, source.source_type))
             continue
-        async_task(task_func, source.id, user_id)
+        async_task(task_func, source.id, user_id, trigger_source="admin-action")
         queued += 1
     if queued:
         modeladmin.message_user(
@@ -157,6 +157,7 @@ def schedule_harvesting(modeladmin, request, queryset):
         Schedule.objects.create(
             func=task_func,
             args=str(source.id),
+            kwargs="trigger_source='admin-action'",
             schedule_type=Schedule.ONCE,
             next_run=now(),
             name=name,
@@ -446,7 +447,7 @@ def retry_event(modeladmin, request, queryset):
         if not task_func:
             skipped.append((event, getattr(source, "source_type", None)))
             continue
-        async_task(task_func, event.source_id, user_id)
+        async_task(task_func, event.source_id, user_id, trigger_source="admin-action")
         queued += 1
     if queued:
         modeladmin.message_user(
@@ -698,6 +699,7 @@ class HarvestingEventAdmin(admin.ModelAdmin):
         "id",
         "source_link",
         "status",
+        "trigger_source",
         "started_at",
         "duration_display",
         "records_added",
@@ -706,7 +708,7 @@ class HarvestingEventAdmin(admin.ModelAdmin):
         "records_with_temporal",
         "error_message_short",
     )
-    list_filter = ("status", "source", "started_at")
+    list_filter = ("status", "trigger_source", "source", "started_at")
     search_fields = ("source__name", "source__url_field", "error_message", "log_text")
     date_hierarchy = "started_at"
     actions = [retry_event]
@@ -714,6 +716,7 @@ class HarvestingEventAdmin(admin.ModelAdmin):
         "source",
         "user",
         "status",
+        "trigger_source",
         "started_at",
         "completed_at",
         "records_added",
@@ -727,6 +730,7 @@ class HarvestingEventAdmin(admin.ModelAdmin):
         "source",
         "user",
         "status",
+        "trigger_source",
         "started_at",
         "completed_at",
         "records_added",

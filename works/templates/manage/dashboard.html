@@ -1,0 +1,223 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Manage tasks and harvests | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-11 col-lg-10">
+      <h1 class="mb-4"><i class="fas fa-cogs"></i> Manage</h1>
+
+      {% include "manage/_nav_tabs.html" with active="dashboard" %}
+
+      {% if country_table_empty or region_table_empty %}
+      <div class="alert alert-warning">
+        <i class="fas fa-exclamation-triangle"></i>
+        {% if country_table_empty and region_table_empty %}
+        The <strong>Country</strong> and <strong>GlobalRegion</strong> reference tables are empty — every work saved (during harvesting or otherwise) is silently linked to zero countries/regions. Run <code>python manage.py load_countries</code> and <code>python manage.py load_global_regions</code>, then <code>python manage.py backfill_work_countries</code> / <code>backfill_work_regions</code> to catch up already-harvested works.
+        {% elif country_table_empty %}
+        The <strong>Country</strong> reference table is empty — every work saved is silently linked to zero countries. Run <code>python manage.py load_countries</code>, then <code>python manage.py backfill_work_countries</code> to catch up already-harvested works.
+        {% else %}
+        The <strong>GlobalRegion</strong> reference table is empty — every work saved is silently linked to zero regions. Run <code>python manage.py load_global_regions</code>, then <code>python manage.py backfill_work_regions</code> to catch up already-harvested works.
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="row">
+        <div class="col-md-3 mb-3">
+          <div class="card text-center h-100">
+            <div class="card-body">
+              <h2>{{ source_count }}</h2>
+              <p class="text-muted mb-0">Sources</p>
+            </div>
+          </div>
+        </div>
+        {% for status, count in work_counts.items %}
+        <div class="col-md-3 mb-3">
+          <div class="card text-center h-100">
+            <div class="card-body">
+              <h2>{{ count }}</h2>
+              <p class="text-muted mb-0">Works ({{ status }})</p>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="row">
+        <div class="col-md-6 mb-4">
+          <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <strong>Running harvests</strong>
+              <a href="{% url 'optimap:manage-harvests' %}?status=in_progress" class="small">All →</a>
+            </div>
+            <div class="card-body p-0">
+              <table class="table table-sm mb-0" id="running-harvests-table">
+                <tbody>
+                  {% for event in running_events %}
+                  <tr>
+                    <td><a href="{% url 'optimap:manage-harvest-detail' event.id %}">{{ event.source.name }}</a>{% if event.is_stale %} <i class="fas fa-exclamation-triangle text-warning" data-toggle="tooltip" title="{{ event.staleness_message }}"></i>{% endif %}</td>
+                    <td class="text-muted small">started {{ event.started_at|timesince }} ago</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td class="text-muted p-3">No harvests currently running.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+          <div class="card h-100">
+            <div class="card-header"><strong>Cluster / queue health</strong></div>
+            <div class="card-body">
+              <div id="cluster-health">
+                {% if cluster %}
+                <ul class="list-unstyled mb-2">
+                  {% for c in cluster %}
+                  <li><i class="fas fa-server text-success"></i> {{ c.host }} (pid {{ c.pid }}) — {{ c.workers }} worker(s), up {{ c.uptime|floatformat:0 }}s</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted"><i class="fas fa-server"></i> No active Django-Q cluster reporting in.</p>
+                {% endif %}
+              </div>
+              <p class="mb-1">Queue depth: <a href="{% url 'optimap:manage-tasks' %}"><span id="queue-depth">{{ queue_depth }}</span></a></p>
+              <hr>
+              <p class="mb-1"><strong>Upcoming schedules</strong></p>
+              <ul class="list-unstyled small mb-0">
+                {% for s in upcoming_schedules %}
+                <li>{{ s.label }} <span class="text-muted">({{ s.schedule_type }})</span> — {{ s.next_run|date:"Y-m-d\TH:i" }}</li>
+                {% empty %}
+                <li class="text-muted">None scheduled.</li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Recent async task failures</strong>
+          <a href="{% url 'optimap:manage-tasks' %}?status=failed" class="small">All →</a>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <tbody id="recent-failures-table">
+              {% for f in recent_failures %}
+              <tr>
+                <td><a href="{% url 'optimap:manage-task-detail' f.id %}">{{ f.func }}</a></td>
+                <td class="text-muted small">{{ f.stopped|date:"Y-m-d\TH:i" }}</td>
+              </tr>
+              {% empty %}
+              <tr><td class="text-muted p-3">No recent failures.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header"><strong>Recent harvesting events</strong></div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Source</th><th>Status</th><th>Trigger</th><th>Started</th></tr></thead>
+            <tbody>
+              {% for event in recent_events %}
+              <tr>
+                <td><a href="{% url 'optimap:manage-harvest-detail' event.id %}">{{ event.source.name }}</a></td>
+                <td>{% include "manage/_status_badge.html" %}</td>
+                <td class="small text-muted">{{ event.get_trigger_source_display }}</td>
+                <td class="small text-muted">{{ event.started_at|date:"Y-m-d\TH:i" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script type="text/javascript">
+  // Poll the dashboard's live widgets (running harvests, cluster/queue health,
+  // recent failures) every 5s. Plain fetch()-based polling — see docs/manage.md
+  // for why (no WebSockets/Channels infra on this WSGI deployment). Stops
+  // while the tab is hidden so a background tab doesn't keep hitting the
+  // server (and the view computing cluster/failure stats) forever.
+  (function () {
+    function escapeHtml(s) {
+      return (s || "").replace(/[&<>"']/g, function (c) {
+        return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+      });
+    }
+
+    function timeAgo(isoString) {
+      var seconds = Math.max(0, Math.round((Date.now() - new Date(isoString).getTime()) / 1000));
+      if (seconds < 60) return seconds + "s";
+      var minutes = Math.round(seconds / 60);
+      if (minutes < 60) return minutes + " minute" + (minutes === 1 ? "" : "s");
+      var hours = Math.round(minutes / 60);
+      return hours + " hour" + (hours === 1 ? "" : "s");
+    }
+
+    function renderCluster(cluster) {
+      var el = document.getElementById("cluster-health");
+      if (!cluster.length) {
+        el.innerHTML = '<p class="text-muted"><i class="fas fa-server"></i> No active Django-Q cluster reporting in.</p>';
+        return;
+      }
+      el.innerHTML = "<ul class=\"list-unstyled mb-2\">" + cluster.map(function (c) {
+        return "<li><i class=\"fas fa-server text-success\"></i> " + escapeHtml(c.host) +
+               " (pid " + c.pid + ") — " + c.workers + " worker(s), up " + Math.round(c.uptime) + "s</li>";
+      }).join("") + "</ul>";
+    }
+
+    function poll() {
+      fetch(window.location.pathname + "?format=json")
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          document.getElementById("queue-depth").textContent = data.queue_depth;
+          renderCluster(data.cluster);
+
+          var runningTable = document.getElementById("running-harvests-table");
+          if (data.running_harvests.length === 0) {
+            runningTable.innerHTML = '<tr><td class="text-muted p-3">No harvests currently running.</td></tr>';
+          } else {
+            runningTable.innerHTML = data.running_harvests.map(function (e) {
+              var warning = e.is_stale
+                ? ' <i class="fas fa-exclamation-triangle text-warning" title="' + escapeHtml(e.staleness_message) + '"></i>'
+                : '';
+              return '<tr><td><a href="' + e.detail_url + '">' + escapeHtml(e.source) + '</a>' + warning + '</td>' +
+                     '<td class="text-muted small">started ' + timeAgo(e.started_at) + ' ago</td></tr>';
+            }).join("");
+          }
+
+          var failuresTable = document.getElementById("recent-failures-table");
+          if (data.recent_failures.length === 0) {
+            failuresTable.innerHTML = '<tr><td class="text-muted p-3">No recent failures.</td></tr>';
+          } else {
+            failuresTable.innerHTML = data.recent_failures.map(function (f) {
+              var when = f.stopped ? timeAgo(f.stopped) + " ago" : "—";
+              return '<tr><td><a href="' + f.detail_url + '">' + escapeHtml(f.func) + '</a></td>' +
+                     '<td class="text-muted small">' + when + '</td></tr>';
+            }).join("");
+          }
+        })
+        .catch(function () { /* transient network error — try again next tick */ });
+    }
+
+    setInterval(function () {
+      if (document.visibilityState === "visible") poll();
+    }, 5000);
+  })();
+</script>
+{% endblock scripts %}

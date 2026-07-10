@@ -468,6 +468,12 @@ def enrich_work_from_openaire(work, *, session=None, save=True, raise_on_unavail
 def enrich_event_from_openaire(event_id, throttle=None, after_id=0, carry=None):
     """Async sweep: check a harvest event's DOI-bearing works against OpenAIRE.
 
+    Note: this function's dotted path is listed in
+    ``works.signals._SELF_NOTIFYING_TASK_FUNCS`` — it already emails staff via
+    ``notify_openaire_abort`` before re-raising on abort, so the generic
+    ``post_execute`` failure notifier skips it. Keep that list in sync if this
+    function is ever renamed.
+
     Enqueued by ``complete_harvest`` after every successful harvest (gated by
     ``OPTIMAP_OPENAIRE_ENRICH_ON_HARVEST``). Every DOI-bearing work that has *not*
     yet been consulted is looked up so the OpenAIRE consultation is recorded in

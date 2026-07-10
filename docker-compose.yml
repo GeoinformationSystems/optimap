@@ -35,6 +35,12 @@ services:
     depends_on:
       - db
       - app
+    # `docker compose stop/restart/down` sends SIGTERM, which Django-Q catches
+    # for its own graceful drain (stops accepting new tasks, lets in-flight
+    # ones finish) — see docs/manage.md's "Restarting qcluster" section. This
+    # gives that drain more room than Docker's 10s default before escalating
+    # to SIGKILL (which skips the drain and can lose in-flight results).
+    stop_grace_period: 60s
 
   webserver:
     image: nginx:1.27-alpine

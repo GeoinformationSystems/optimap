@@ -41,6 +41,9 @@ from .common import (
     complete_harvest,
     ensure_collection_for_source,
     fail_harvest,
+    log_work_enriched,
+    log_work_failed,
+    log_work_retrieved,
     render_harvest_email,
     resolve_user,
     send_harvest_email,
@@ -54,7 +57,14 @@ from .sessions import (
     CROSSREF_HTTP_TIMEOUT,
     CROSSREF_PAGE_ROWS,
     _crossref_session,
+    fetch_with_deadline,
 )
+
+# Wall-clock ceiling for a single landing-page fetch (see fetch_with_deadline
+# in sessions.py) — requests' own timeout= only bounds the connect and the gap
+# between reads, not the call as a whole, so a slowly-trickling server could
+# otherwise occupy a worker for far longer than intended.
+_LANDING_PAGE_FETCH_DEADLINE = CROSSREF_HTTP_TIMEOUT * 2
 
 #: Stable name for the auto-seeded Source that owns all user-submitted DOIs
 #: (the /contribute/ "add a work by DOI" form).
@@ -153,8 +163,11 @@ def fetch_copernicus_abstract(landing_url, session=None):
         return None
     s = session or _crossref_session()
     try:
-        resp = s.get(landing_url, timeout=CROSSREF_HTTP_TIMEOUT, allow_redirects=True)
-    except requests.exceptions.RequestException as e:
+        resp = fetch_with_deadline(
+            lambda: s.get(landing_url, timeout=CROSSREF_HTTP_TIMEOUT, allow_redirects=True),
+            _LANDING_PAGE_FETCH_DEADLINE,
+        )
+    except (requests.exceptions.RequestException, TimeoutError) as e:
         logger.info("Abstract fetch failed for %s: %s", landing_url, e)
         return None
     if not resp.ok:
@@ -228,6 +241,7 @@ def _crossref_item_to_work_kwargs(
     url = item.get("URL") or f"https://doi.org/{doi}"
     title_list = item.get("title") or []
     title = title_list[0] if title_list else doi
+    log_work_retrieved(event, title)
 
     published = (
         item.get("published-print")
@@ -279,6 +293,7 @@ def _crossref_item_to_work_kwargs(
     except Exception as e:  # noqa: BLE001 — enrichment must never fail a harvest
         logger.info("OpenAlex enrichment failed for %s: %s", doi, e)
         openalex_fields, oa_provenance = {}, {}
+    log_work_enriched(event, title, openalex_fields)
 
     # Crossref wins over OpenAlex for fields Crossref already provided.
     openalex_fields.pop("type", None)
@@ -331,30 +346,36 @@ def _crossref_item_to_work_kwargs(
 def _try_bok_pdf_extraction(work, doi: str, session) -> None:
     """Download the AGILE GISS PDF for *work* and save extracted BoK codes.
 
-    No-op for non-AGILE DOIs or when bok_concepts are already set.
-    All errors are swallowed so harvest never fails due to PDF issues.
+    No-op for non-AGILE DOIs or when bok_concepts are already set. All errors
+    are caught and logged **here** (rather than relying on the caller's
+    per-record catch) so a PDF-extraction failure is never misattributed as
+    "failed to persist" the work — the save that matters already succeeded;
+    this is a best-effort, post-save enrichment step only.
     """
-    if not agile_giss_doi_to_pdf_url(doi):
-        return
-    if work.bok_concepts:
-        return
-    codes = extract_bok_from_agile_pdf(doi, session=session)
-    if not codes:
-        return
-    pdf_url = agile_giss_doi_to_pdf_url(doi)
-    work.bok_concepts = codes
-    prov = work.provenance if isinstance(work.provenance, dict) else {}
-    prov.setdefault("metadata_sources", {})["bok_concepts"] = "pdf_extraction"
-    work.provenance = prov
-    append_event(
-        work,
-        "bok_pdf_extract",
-        source="pdf",
-        pdf_url=pdf_url,
-        codes_found=codes,
-    )
-    work.save(update_fields=["bok_concepts", "provenance"])
-    logger.info("BoK PDF extraction: set %s on work %s", codes, work.id)
+    try:
+        if not agile_giss_doi_to_pdf_url(doi):
+            return
+        if work.bok_concepts:
+            return
+        codes = extract_bok_from_agile_pdf(doi, session=session)
+        if not codes:
+            return
+        pdf_url = agile_giss_doi_to_pdf_url(doi)
+        work.bok_concepts = codes
+        prov = work.provenance if isinstance(work.provenance, dict) else {}
+        prov.setdefault("metadata_sources", {})["bok_concepts"] = "pdf_extraction"
+        work.provenance = prov
+        append_event(
+            work,
+            "bok_pdf_extract",
+            source="pdf",
+            pdf_url=pdf_url,
+            codes_found=codes,
+        )
+        work.save(update_fields=["bok_concepts", "provenance"])
+        logger.info("BoK PDF extraction: set %s on work %s", codes, work.id)
+    except Exception as exc:  # noqa: BLE001 — best-effort enrichment must never fail the harvest
+        logger.warning("BoK PDF extraction failed for work id=%s (doi=%s): %s", work.id, doi, exc)
 
 
 def parse_crossref_response_and_save_works(
@@ -499,6 +520,10 @@ def parse_crossref_response_and_save_works(
             if seen % log_interval == 0:
                 suffix = f"/{max_records}" if max_records else ""
                 logger.info("Processed %d%s records", seen, suffix)
+                if event is not None:
+                    event.append_log(
+                        f"Processed {seen}{suffix} records ({stats.created} created, {stats.updated} updated)"
+                    )
             kwargs = _crossref_item_to_work_kwargs(
                 item,
                 source,
@@ -530,6 +555,7 @@ def parse_crossref_response_and_save_works(
                     kwargs.get("doi"),
                     e,
                 )
+                log_work_failed(event, kwargs.get("title") or kwargs.get("doi"), e)
             if max_records and seen >= max_records:
                 return saved, seen
 
@@ -568,6 +594,7 @@ def harvest_crossref_prefix(
     since=None,
     event_id=None,
     issn=None,
+    trigger_source=None,
 ):
     """Harvest publications from Crossref by DOI prefix.
 
@@ -583,7 +610,10 @@ def harvest_crossref_prefix(
     """
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting Crossref harvest for {source.name} (prefix={prefix or source.doi_prefix})")
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
@@ -630,8 +660,20 @@ def harvest_crossref_prefix(
     if full:
         since = None
     elif since is None:
+        # max_records__isnull=True — a capped run (e.g. a 20-record smoke test
+        # or a manual "Harvest now" with a limit) must never become the
+        # incremental watermark. Records that existed upstream before that
+        # run's completed_at but were excluded purely by the cap were never
+        # actually pulled; if we advanced "since" to that run's timestamp
+        # anyway, every later incremental run would permanently skip them
+        # (they're older than the window and Crossref has no reason to
+        # re-index them again). Only a full/unbounded run has actually walked
+        # everything up to its completion time, so only that can safely
+        # advance the watermark.
         last_completed = (
-            HarvestingEvent.objects.filter(source=source, status="completed", completed_at__isnull=False)
+            HarvestingEvent.objects.filter(
+                source=source, status="completed", completed_at__isnull=False, max_records__isnull=True
+            )
             .exclude(id=event.id)
             .order_by("-completed_at")
             .first()
@@ -721,6 +763,7 @@ def harvest_crossref_prefix(
                 "records_seen": seen,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 
@@ -760,6 +803,7 @@ def harvest_crossref_book_list(
     book_isbns=None,
     update_existing=False,
     event_id=None,
+    trigger_source=None,
 ):
     """Harvest all chapters from a list of book ISBNs via Crossref.
 
@@ -775,7 +819,9 @@ def harvest_crossref_book_list(
     """
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
@@ -798,6 +844,7 @@ def harvest_crossref_book_list(
             # cause zero results even though the ISBN is valid.
             isbn_plain = isbn.replace("-", "")
             logger.info("Harvesting ISBN %s", isbn)
+            event.append_log(f"Harvesting ISBN {isbn}")
             _, seen = parse_crossref_response_and_save_works(
                 source,
                 event,
@@ -843,6 +890,7 @@ def harvest_crossref_book_list(
                 "records_seen": total_seen,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 
@@ -912,7 +960,7 @@ def _fetch_crossref_item(doi, session):
         return None
 
 
-def harvest_crossref_doi(doi, user=None, source_id=None):
+def harvest_crossref_doi(doi, user=None, source_id=None, trigger_source="api"):
     """Harvest a single DOI from Crossref into a ``Work`` (synchronous).
 
     Used by the /contribute/ "add a work by DOI" flow. Fetches the one Crossref
@@ -937,7 +985,7 @@ def harvest_crossref_doi(doi, user=None, source_id=None):
         if not item:
             return None, "not_found"
 
-        event = HarvestingEvent.objects.create(source=source, status="in_progress")
+        event = HarvestingEvent.objects.create(source=source, status="in_progress", trigger_source=trigger_source)
         kwargs = _crossref_item_to_work_kwargs(
             item,
             source,
@@ -1012,15 +1060,18 @@ def _refresh_source_geometry_temporal(work, session):
         # *content negotiation* to Crossref's metadata transform endpoint
         # instead of the publisher's HTML landing page — so we'd never see the
         # spatial/temporal markup. Override it to land on the real article page.
-        resp = session.get(
-            work.url,
-            timeout=CROSSREF_HTTP_TIMEOUT,
-            allow_redirects=True,
-            headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+        resp = fetch_with_deadline(
+            lambda: session.get(
+                work.url,
+                timeout=CROSSREF_HTTP_TIMEOUT,
+                allow_redirects=True,
+                headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            ),
+            _LANDING_PAGE_FETCH_DEADLINE,
         )
         resp.raise_for_status()
         soup = BeautifulSoup(resp.content, "html.parser")
-    except (requests.RequestException, ValueError) as exc:
+    except (requests.RequestException, ValueError, TimeoutError) as exc:
         logger.info("Re-harvest landing-page fetch failed for %s: %s", work.url, exc)
         return info
 
@@ -1075,7 +1126,7 @@ def _refresh_source_geometry_temporal(work, session):
     return info
 
 
-def reharvest_work(work, user=None):
+def reharvest_work(work, user=None, trigger_source="manual"):
     """Re-harvest a single existing ``Work`` by its DOI (synchronous).
 
     Used by the admin "Re-harvest" button on the work landing page. Re-fetches
@@ -1115,7 +1166,9 @@ def reharvest_work(work, user=None):
         if not item:
             return work, "not_found", {}
 
-        event = HarvestingEvent.objects.create(source=source, user=user, status="in_progress")
+        event = HarvestingEvent.objects.create(
+            source=source, user=user, status="in_progress", trigger_source=trigger_source
+        )
         try:
             kwargs = _crossref_item_to_work_kwargs(
                 item,

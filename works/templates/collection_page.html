@@ -111,6 +111,7 @@
                     <th scope="col" class="text-right"><abbr data-toggle="tooltip" title="Works from this source published in OPTIMAP">Published</abbr></th>
                     <th scope="col" class="text-right"><abbr data-toggle="tooltip" title="Total records in OAI-PMH set / Crossref / OpenAlex (upstream, not in OPTIMAP)">Upstream total</abbr></th>
                     <th scope="col" class="text-muted">As of</th>
+                    <th scope="col" class="text-muted">Last harvested</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -148,6 +149,7 @@
                       {% if stat.openalex_fetched_at and stat.openalex_fetched_at != stat.oai_fetched_at %}{% if stat.oai_fetched_at %} / {% endif %}{{ stat.openalex_fetched_at }}{% endif %}
                       {% if stat.crossref_fetched_at and stat.crossref_fetched_at != stat.oai_fetched_at and stat.crossref_fetched_at != stat.openalex_fetched_at %}{% if stat.oai_fetched_at or stat.openalex_fetched_at %} / {% endif %}{{ stat.crossref_fetched_at }}{% endif %}
                     </td>
+                    <td class="text-muted">{{ stat.last_harvest_at|date:"Y-m-d\TH:i"|default:"—" }}</td>
                   </tr>
                   {% endfor %}
                 </tbody>

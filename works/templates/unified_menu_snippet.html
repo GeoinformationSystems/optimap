@@ -49,8 +49,11 @@
     <li><a class="dropdown-item disabled text-muted small" style="white-space: normal; cursor: default;">{{ user.email }}</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:usersettings' %}"><i class="fas fa-cog"></i> Settings</a></li>
     <li><a class="dropdown-item" href="{% url 'optimap:subscriptions' %}"><i class="fas fa-bell"></i> Subscriptions</a></li>
-    {% if user.is_superuser %}
+    {% if user.is_staff %}
     <div class="dropdown-divider" aria-hidden="true"></div>
+    <li><a class="dropdown-item" href="{% url 'optimap:manage-dashboard' %}"><i class="fas fa-cogs"></i> Manage harvesting</a></li>
+    {% endif %}
+    {% if user.is_superuser %}
     <li><a class="dropdown-item" href="{% url 'admin:index' %}"><i class="fas fa-user-shield"></i> Admin</a></li>
     {% endif %}
     <div class="dropdown-divider" aria-hidden="true"></div>

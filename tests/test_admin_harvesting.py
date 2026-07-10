@@ -105,6 +105,13 @@ class HarvestingEventLogPersistenceTest(TestCase):
         self.assertEqual(event.records_with_temporal, 0)
         # log_text always populated by HarvestWarningCollector.get_summary()
         self.assertNotEqual(event.log_text, "")
+        # Regression: complete_harvest() must APPEND the final summary after
+        # any incremental append_log() lines written during the run (the
+        # per-year-chunk progress lines), not overwrite them — otherwise the
+        # /manage/harvests/<id>/ live-log trail vanishes the moment the
+        # harvest finishes.
+        self.assertIn("Starting OAI-PMH harvest", event.log_text)
+        self.assertIn("Checking year", event.log_text)
 
 
 class SourceAdminRegistrationTest(TestCase):
@@ -355,3 +362,306 @@ class SourceAdminChangelistTest(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "No Events")
+
+
+class StaleUserForeignKeyResilienceTest(TestCase):
+    """A HarvestingEvent whose `user` was deleted mid-run (e.g. concurrently by
+    something else, or a long-running worker holding a stale in-memory copy)
+    must not crash logging or the terminal-state write.
+
+    Regression: Django's Model.save() refuses to write a row whose cached
+    related-object (here `user`) was deleted ("save() prohibited to prevent
+    data loss"), which used to propagate out of append_log()/complete_harvest()/
+    fail_harvest() and crash an otherwise-successful harvest, leaving the event
+    stuck without ever being marked completed or failed.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="stale-fk@example.com", email="stale-fk@example.com")
+        self.source = _make_source(name="Stale FK Source", url_field="http://stale-fk.example.org/oai")
+        # Passing the instance (not user_id=) caches it as the FK's related
+        # object; deleting that same instance afterwards sets its .pk to None,
+        # which is exactly what Django's save()-time guard checks for.
+        self.event = HarvestingEvent.objects.create(source=self.source, user=self.user, status="in_progress")
+        self.user.delete()
+
+    def test_append_log_does_not_raise_after_user_deleted(self):
+        # The line is still set in memory (harmless), but since the row can't
+        # be saved with this stale FK, append_log() drops it rather than
+        # crashing — it's only ever persisted by the next successful save
+        # (e.g. complete_harvest()/fail_harvest(), which have their own
+        # queryset-update() fallback and so still land in the DB).
+        self.event.append_log("line written after user deletion")  # must not raise
+        self.assertIn("line written after user deletion", self.event.log_text)
+
+    def test_complete_harvest_persists_status_despite_stale_user(self):
+        from works.harvesting.common import HarvestStats, HarvestWarningCollector, complete_harvest
+
+        complete_harvest(self.event, HarvestStats(), HarvestWarningCollector())  # must not raise
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, "completed")
+        self.assertIsNone(self.event.user_id)
+
+    def test_fail_harvest_persists_status_despite_stale_user(self):
+        from works.harvesting.common import HarvestWarningCollector, fail_harvest
+
+        fail_harvest(self.event, RuntimeError("boom"), HarvestWarningCollector())  # must not raise
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, "failed")
+        self.assertIn("boom", self.event.error_message)
+
+
+class LogWorkBatchingTest(TestCase):
+    """HarvestingEvent.log_work() batches its DB write every 5 calls rather
+    than writing on every call — a full DB round-trip per record would
+    multiply write volume by the record count on large harvests.
+    """
+
+    def setUp(self):
+        self.source = _make_source(name="Log Work Source")
+        self.event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+
+    def test_lines_are_buffered_in_memory_before_flush(self):
+        for i in range(4):
+            self.event.log_work(f"line {i}")
+        # In-memory copy always has every line...
+        for i in range(4):
+            self.assertIn(f"line {i}", self.event.log_text)
+        # ...but nothing has been flushed to the DB yet.
+        stored = HarvestingEvent.objects.get(pk=self.event.pk)
+        self.assertEqual(stored.log_text, "")
+
+    def test_fifth_call_flushes_all_buffered_lines(self):
+        for i in range(5):
+            self.event.log_work(f"line {i}")
+        stored = HarvestingEvent.objects.get(pk=self.event.pk)
+        for i in range(5):
+            self.assertIn(f"line {i}", stored.log_text)
+
+    def test_buffered_lines_survive_to_complete_harvest(self):
+        # Lines buffered-but-not-yet-flushed must still make it into the DB
+        # once the run ends — complete_harvest()/fail_harvest() persist
+        # whatever is in self.log_text regardless of the flush counter.
+        from works.harvesting.common import HarvestStats, HarvestWarningCollector, complete_harvest
+
+        self.event.log_work("only line")  # 1 of 5 — not flushed yet
+        complete_harvest(self.event, HarvestStats(), HarvestWarningCollector())
+        stored = HarvestingEvent.objects.get(pk=self.event.pk)
+        self.assertIn("only line", stored.log_text)
+
+    def test_log_text_is_capped_rather_than_growing_unboundedly(self):
+        # A harvest logging one line per work (tens of thousands of records
+        # for some sources) must not let log_text grow without bound — every
+        # save() of the row would otherwise resend an ever-larger string.
+        for i in range(2000):
+            self.event.append_log(f"line number {i} with some padding text to bulk it out")
+        self.assertLessEqual(len(self.event.log_text), HarvestingEvent._LOG_TEXT_MAX_CHARS + 200)
+        # The most recent line must still be present (front gets trimmed, not the tail).
+        self.assertIn("line number 1999", self.event.log_text)
+        self.assertIn("truncated", self.event.log_text)
+
+
+class LogWorkPerWorkHelpersTest(TestCase):
+    """works.harvesting.common.log_work_retrieved()/log_work_enriched()/
+    log_work_failed() — the per-harvester "Retrieved"/"Enriched"/"Failed to
+    save" checkpoints, shared across all 8 harvesters.
+    """
+
+    def setUp(self):
+        self.source = _make_source(name="Per-Work Helpers Source")
+        self.event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+
+    def test_retrieved_line(self):
+        from works.harvesting.common import log_work_retrieved
+
+        log_work_retrieved(self.event, "A Retrieved Title")
+        self.assertIn("Retrieved: A Retrieved Title", self.event.log_text)
+
+    def test_retrieved_line_falls_back_when_title_missing(self):
+        from works.harvesting.common import log_work_retrieved
+
+        log_work_retrieved(self.event, None)
+        self.assertIn("Retrieved: No title", self.event.log_text)
+
+    def test_enriched_line_matched(self):
+        from works.harvesting.common import log_work_enriched
+
+        log_work_enriched(self.event, "A Title", {"openalex_id": "W123"})
+        self.assertIn("Enriched: A Title — OpenAlex matched", self.event.log_text)
+
+    def test_enriched_line_no_match(self):
+        from works.harvesting.common import log_work_enriched
+
+        log_work_enriched(self.event, "A Title", {"openalex_id": None})
+        self.assertIn("Enriched: A Title — OpenAlex no match", self.event.log_text)
+
+    def test_failed_line_includes_exception(self):
+        from works.harvesting.common import log_work_failed
+
+        log_work_failed(self.event, "A Title", RuntimeError("db exploded"))
+        self.assertIn("Failed to save: A Title — db exploded", self.event.log_text)
+
+    def test_all_three_are_no_ops_without_an_event(self):
+        from works.harvesting.common import log_work_enriched, log_work_failed, log_work_retrieved
+
+        log_work_retrieved(None, "x")  # must not raise
+        log_work_enriched(None, "x", {})  # must not raise
+        log_work_failed(None, "x", RuntimeError("boom"))  # must not raise
+
+
+class LogWorkOutcomeTest(TestCase):
+    """works.harvesting.common.log_work_outcome()/log_work_skip() — the shared
+    per-work UI log lines emitted from _save_or_update_work() and each
+    harvester's early-dedup check.
+    """
+
+    def setUp(self):
+        self.source = _make_source(name="Outcome Source")
+        self.event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+
+    def test_created_line_includes_work_id_and_no_enrichment_note_when_absent(self):
+        from works.harvesting.common import log_work_outcome
+
+        work = type("W", (), {"id": 42})()
+        log_work_outcome(self.event, {"title": "A Sample Title"}, work, "created")
+        self.assertIn("Saved id=42: A Sample Title", self.event.log_text)
+        self.assertNotIn("OpenAlex", self.event.log_text)
+
+    def test_enrichment_note_reflects_openalex_match(self):
+        from works.harvesting.common import log_work_outcome
+
+        work = type("W", (), {"id": 7})()
+        log_work_outcome(self.event, {"title": "Matched Work", "openalex_id": "W123"}, work, "created")
+        self.assertIn("Saved id=7: Matched Work (OpenAlex: matched)", self.event.log_text)
+
+    def test_enrichment_note_reflects_no_openalex_match(self):
+        from works.harvesting.common import log_work_outcome
+
+        work = type("W", (), {"id": 8})()
+        log_work_outcome(self.event, {"title": "Unmatched Work", "openalex_id": None}, work, "updated")
+        self.assertIn("Updated id=8: Unmatched Work (OpenAlex: no match)", self.event.log_text)
+
+    def test_skipped_same_source_line(self):
+        from works.harvesting.common import log_work_outcome
+
+        work = type("W", (), {"id": 9})()
+        log_work_outcome(self.event, {"title": "Dup Work"}, work, "skipped_same_source")
+        self.assertIn("Skipped (duplicate) id=9: Dup Work", self.event.log_text)
+
+    def test_skipped_cross_source_line(self):
+        from works.harvesting.common import log_work_outcome
+
+        work = type("W", (), {"id": 10})()
+        log_work_outcome(self.event, {"title": "Cross Source Work"}, work, "skipped_cross_source")
+        self.assertIn("Skipped (already under another source) id=10: Cross Source Work", self.event.log_text)
+
+    def test_no_event_is_a_no_op(self):
+        from works.harvesting.common import log_work_outcome
+
+        log_work_outcome(None, {"title": "x"}, None, "created")  # must not raise
+
+    def test_log_work_skip_uses_matching_labels(self):
+        from works.harvesting.common import log_work_skip
+
+        log_work_skip(self.event, "Early Duplicate", cross_source=False)
+        self.assertIn("Skipped (duplicate): Early Duplicate", self.event.log_text)
+        log_work_skip(self.event, "Early Cross-Source Duplicate", cross_source=True)
+        self.assertIn("Skipped (already under another source): Early Cross-Source Duplicate", self.event.log_text)
+
+
+class DuplicateRetryOnTerminalEventTest(TestCase):
+    """harvest_oai_endpoint (representative of all 9 harvest_* entry points)
+    must abort cleanly, doing no work, when its event_id already points to a
+    terminal HarvestingEvent — the signature of Django-Q re-executing an
+    already-concluded task (its own retry-on-timeout/failure mechanism).
+
+    Regression: this used to silently create a *second* HarvestingEvent
+    mislabeled trigger_source="schedule" (the model default, since a retry
+    never passes trigger_source) and re-run the whole harvest — turning one
+    stuck task into an unbounded stream of phantom "scheduled" harvests.
+    """
+
+    def test_harvest_oai_endpoint_does_nothing_when_event_already_completed(self):
+        source = _make_source(name="Already Done Source", url_field="http://example.org/already-done")
+        done = HarvestingEvent.objects.create(source=source, status="completed", trigger_source="management-command")
+        count_before = HarvestingEvent.objects.count()
+
+        harvest_oai_endpoint(source.id, event_id=done.id)  # must not raise, must not fetch anything
+
+        self.assertEqual(HarvestingEvent.objects.count(), count_before)
+        done.refresh_from_db()
+        self.assertEqual(done.status, "completed")  # untouched
+
+
+class HarvestEventUrlTest(TestCase):
+    """render_harvest_email(event=...) links a "Harvesting Completed" email
+    back to that run's /manage/harvests/<id>/ page."""
+
+    def test_harvest_event_url_builds_absolute_manage_link(self):
+        from django.conf import settings
+
+        from works.harvesting.common import harvest_event_url
+
+        source = _make_source()
+        event = HarvestingEvent.objects.create(source=source, status="completed")
+
+        url = harvest_event_url(event)
+
+        self.assertEqual(url, f"{settings.BASE_URL}{reverse('optimap:manage-harvest-detail', args=[event.id])}")
+
+    def test_render_harvest_email_injects_detail_url_from_event(self):
+        from works.harvesting.common import harvest_event_url, render_harvest_email
+
+        source = _make_source()
+        event = HarvestingEvent.objects.create(source=source, status="completed")
+
+        _subject, body = render_harvest_email(
+            "email/harvest_success.en.txt",
+            {
+                "subject_prefix": "",
+                "source_label": source.name,
+                "detail_header": "Test harvest details:",
+                "records_added_label": "New works",
+                "records_added": 0,
+                "records_updated_label": "Updated works",
+                "records_updated": 0,
+                "spatial_label": "With spatial extent",
+                "spatial_count": 0,
+                "temporal_label": "With temporal extent",
+                "temporal_count": 0,
+                "event_started": "2026-01-01 00:00:00",
+                "event_completed": "2026-01-01 00:01:00",
+            },
+            event=event,
+        )
+
+        self.assertIn(harvest_event_url(event), body)
+
+    def test_render_harvest_email_does_not_override_an_explicit_detail_url(self):
+        from works.harvesting.common import render_harvest_email
+
+        source = _make_source()
+        event = HarvestingEvent.objects.create(source=source, status="completed")
+
+        _subject, body = render_harvest_email(
+            "email/harvest_success.en.txt",
+            {
+                "subject_prefix": "",
+                "source_label": source.name,
+                "detail_header": "Test harvest details:",
+                "records_added_label": "New works",
+                "records_added": 0,
+                "records_updated_label": "Updated works",
+                "records_updated": 0,
+                "spatial_label": "With spatial extent",
+                "spatial_count": 0,
+                "temporal_label": "With temporal extent",
+                "temporal_count": 0,
+                "event_started": "2026-01-01 00:00:00",
+                "event_completed": "2026-01-01 00:01:00",
+                "detail_url": "https://explicit.example/override",
+            },
+            event=event,
+        )
+
+        self.assertIn("https://explicit.example/override", body)

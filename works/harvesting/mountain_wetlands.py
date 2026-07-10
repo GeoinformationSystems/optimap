@@ -30,6 +30,9 @@ from .common import (
     ensure_collection_for_source,
     fail_harvest,
     get_or_create_admin_command_user,
+    log_work_failed,
+    log_work_retrieved,
+    log_work_skip,
     render_harvest_email,
     resolve_user,
     send_harvest_email,
@@ -171,6 +174,10 @@ def parse_mountain_wetlands_response_and_save_works(
         if total_so_far % log_interval == 0:
             suffix = f"/{max_records}" if max_records else ""
             logger.info("Processed %d%s records", total_so_far, suffix)
+            if event is not None:
+                event.append_log(
+                    f"Processed {total_so_far}{suffix} records ({stats.created} created, {stats.updated} updated)"
+                )
 
         item_id = item.get("id")
         title = (item.get("title") or "").strip()
@@ -200,7 +207,10 @@ def parse_mountain_wetlands_response_and_save_works(
             if _cross_source or not update_existing:
                 action = "skipped_cross_source" if _cross_source else "skipped_same_source"
                 stats.record(action)
+                log_work_skip(event, title, _cross_source)
                 continue
+
+        log_work_retrieved(event, title)
 
         existing_metadata = {}
         if api_authors:
@@ -224,6 +234,7 @@ def parse_mountain_wetlands_response_and_save_works(
                 match_status = "candidate"
             else:
                 match_status = "none"
+        event.log_work(f"Enriched: {title[:80] if title else 'No title'} — OpenAlex {match_status}")
 
         doi_value = api_doi
         if not doi_value:
@@ -305,12 +316,15 @@ def parse_mountain_wetlands_response_and_save_works(
                 )
         except Exception as save_err:
             logger.warning("Failed to save MaRESS item %s: %s", item_id, save_err)
+            log_work_failed(event, title or item_id, save_err)
             continue
 
     return saved, processed
 
 
-def harvest_mountain_wetlands(source_id, user=None, max_records=None, update_existing=False, event_id=None):
+def harvest_mountain_wetlands(
+    source_id, user=None, max_records=None, update_existing=False, event_id=None, trigger_source=None
+):
     """Bespoke harvester for the Mountain Wetlands Repository (MaRESS API).
 
     Manual-only — the issue #192 explicitly forbids auto-scheduling. Run via
@@ -323,7 +337,10 @@ def harvest_mountain_wetlands(source_id, user=None, max_records=None, update_exi
     # run if the source has none, mirroring the OAI-PMH path. Idempotent — re-runs
     # are no-ops once the source has a collection assigned.
     ensure_collection_for_source(source)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting Mountain Wetlands (MaRESS) harvest from {source.url_field}")
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
@@ -365,6 +382,7 @@ def harvest_mountain_wetlands(source_id, user=None, max_records=None, update_exi
             )
             total_saved += saved
             total_processed += processed
+            event.append_log(f"skip={skip}: {total_saved} saved so far ({total_processed} processed).")
 
             count = payload.get("count") or 0
             page_data = payload.get("data") or []
@@ -419,6 +437,7 @@ def harvest_mountain_wetlands(source_id, user=None, max_records=None, update_exi
                 "records_seen": None,
                 "records_processed": total_processed,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

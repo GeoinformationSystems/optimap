@@ -104,3 +104,4 @@ class HarvestRegularMetadataTestCase(TestCase):
         self.assertIn(self.source.name, email.body)
         self.assertIn(self.source.url_field, email.body)
         self.assertIn(event.started_at.strftime("%Y-%m-%d"), email.body)
+        self.assertIn(f"/manage/harvests/{event.id}/", email.body)

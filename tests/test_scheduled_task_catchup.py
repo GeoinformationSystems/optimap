@@ -170,3 +170,40 @@ class ScheduleIntendedDateKwargTest(TestCase):
         manual = Schedule.objects.get(name=f"Manual Harvest Source {source.id}")
         self.assertFalse(manual.intended_date_kwarg)  # None or "" → never treated as a scheduled catch-up
         self.assertEqual(manual.schedule_type, Schedule.ONCE)
+
+    def test_backfill_schedules_set_intended_date_kwarg(self):
+        from works.tasks import (
+            schedule_backfill_author_orcids,
+            schedule_backfill_work_countries,
+            schedule_backfill_work_regions,
+        )
+
+        Schedule.objects.filter(
+            func__in=(
+                "works.tasks.backfill_work_countries",
+                "works.tasks.backfill_work_regions",
+                "works.tasks.backfill_author_orcids_task",
+            )
+        ).delete()
+        schedule_backfill_work_countries()
+        schedule_backfill_work_regions()
+        schedule_backfill_author_orcids()
+        for func in (
+            "works.tasks.backfill_work_countries",
+            "works.tasks.backfill_work_regions",
+            "works.tasks.backfill_author_orcids_task",
+        ):
+            sched = Schedule.objects.get(func=func)
+            self.assertEqual(sched.intended_date_kwarg, "scheduled_for", func)
+
+    def test_backfill_targets_accept_scheduled_for_without_raising(self):
+        # Regression: backfill_work_countries/backfill_work_regions were
+        # scheduled with intended_date_kwarg="scheduled_for" (so Django-Q's
+        # scheduler injects that kwarg on every run) but were missing the
+        # @log_scheduled_catchup decorator that pops it — every *scheduled*
+        # (not manual/direct) invocation raised TypeError. Reproduced by
+        # calling exactly as the scheduler does: with a scheduled_for kwarg.
+        from works.tasks import backfill_work_countries, backfill_work_regions
+
+        backfill_work_countries(scheduled_for=timezone.now().isoformat())  # must not raise
+        backfill_work_regions(scheduled_for=timezone.now().isoformat())  # must not raise

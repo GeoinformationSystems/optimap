@@ -1,0 +1,309 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+
+{% block title %}{% if source %}Edit {{ source.name }}{% else %}Add source{% endif %} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-7">
+      <h1 class="mb-4">{% if source %}Edit {{ source.name }}{% else %}Add source{% endif %}</h1>
+
+      {% if not source %}
+      <div class="card mb-4">
+        <div class="card-header"><strong>Step 1 — discover from a URL (optional)</strong></div>
+        <div class="card-body">
+          <form method="get" class="form-inline mb-3">
+            <label for="discover" class="sr-only">Journal or repository URL</label>
+            <input type="text" id="discover" name="discover" class="form-control mr-2" style="min-width: 20rem"
+                   placeholder="https://example-journal.org/" value="{{ discover_url }}">
+            <button type="submit" class="btn btn-outline-primary">Discover OAI-PMH endpoint</button>
+          </form>
+          {% if discover_error %}
+          <div class="alert alert-warning">Discovery failed: {{ discover_error }}</div>
+          {% elif discover_url and not candidates %}
+          <div class="alert alert-warning">No valid OAI-PMH endpoint found at or near that URL.</div>
+          {% elif candidates %}
+          <p class="text-muted small">Found {{ candidates|length }} candidate(s). Pick one to prefill the form below (step 2).</p>
+          <div class="list-group mb-2">
+            {% for c in candidates %}
+            <div class="list-group-item">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <strong>{{ c.repository_name|default:c.base_url }}</strong><br>
+                  <code class="small">{{ c.base_url }}</code><br>
+                  <span class="text-muted small">
+                    {% if c.earliest_datestamp %}Earliest record: {{ c.earliest_datestamp }} &middot; {% endif %}
+                    {% if c.admin_email %}Admin: {{ c.admin_email }} &middot; {% endif %}
+                    {% if c.protocol_version %}OAI-PMH {{ c.protocol_version }}{% endif %}
+                  </span>
+                </div>
+                <button type="button" class="btn btn-sm btn-primary use-candidate-btn"
+                        data-name="{{ c.repository_name|default:c.base_url }}"
+                        data-url="{{ c.base_url }}?verb=ListRecords&amp;metadataPrefix=oai_dc">
+                  Use this
+                </button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <div class="card-header"><strong>{% if source %}Edit{% else %}Step 2 — create{% endif %}</strong></div>
+        <div class="card-body">
+          {% if not source %}
+          <div id="duplicate-warning" class="alert alert-warning" style="display:none"></div>
+          {% endif %}
+          <form method="post" id="source-form" action="{% if source %}{% url 'optimap:manage-source-detail' source.id %}{% else %}{% url 'optimap:manage-sources' %}{% endif %}">
+            {% csrf_token %}
+            {% if not source %}<input type="hidden" name="confirm_duplicate" id="confirm_duplicate" value="0">{% endif %}
+            <div class="form-group">
+              <label for="name">Name</label>
+              <input type="text" id="name" name="name" class="form-control" required value="{{ source.name|default:'' }}">
+            </div>
+            <div class="form-group">
+              <label for="source_type">Source type</label>
+              <select id="source_type" name="source_type" class="form-control">
+                {% for value, label in source_types %}
+                <option value="{{ value }}" {% if source.source_type == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="url_field">URL</label>
+              <input type="text" id="url_field" name="url_field" class="form-control" required value="{{ source.url_field|default:'' }}">
+              <small class="form-text text-muted">What goes here depends on source type — see docs/manage.md → "Source field cheatsheet".</small>
+            </div>
+            {% if source %}
+            <div class="form-group">
+              <label for="harvest_interval_minutes">Auto-harvest interval (minutes)</label>
+              <input type="number" id="harvest_interval_minutes" name="harvest_interval_minutes" class="form-control" min="0" value="{{ source.harvest_interval_minutes }}">
+              <small class="form-text text-muted">0 = manual-only.</small>
+            </div>
+            {% endif %}
+            <div class="form-group">
+              <label for="openalex_id">OpenAlex source ID</label>
+              <div class="input-group">
+                <input type="text" id="openalex_id" name="openalex_id" class="form-control" value="{{ source.openalex_id|default:'' }}">
+                {% if not source %}
+                <div class="input-group-append">
+                  <button type="button" id="openalex-suggest-btn" class="btn btn-outline-secondary" disabled
+                          title="Fill in the Name field first (or pick a discovered OAI-PMH endpoint above) to search OpenAlex.">
+                    Suggest from OpenAlex
+                  </button>
+                </div>
+                {% endif %}
+              </div>
+              {% if not source %}
+              <small class="form-text text-muted">Also suggests ISSN-L and DOI prefix below, from the OpenAlex source you pick.</small>
+              <div id="openalex-candidates" class="list-group mt-2" style="display:none"></div>
+              {% endif %}
+            </div>
+            <div class="form-group">
+              <label for="issn_l">ISSN-L</label>
+              <input type="text" id="issn_l" name="issn_l" class="form-control" value="{{ source.issn_l|default:'' }}">
+            </div>
+            <div class="form-group">
+              <label for="doi_prefix">DOI prefix</label>
+              <input type="text" id="doi_prefix" name="doi_prefix" class="form-control" value="{{ source.doi_prefix|default:'' }}">
+              {% if not source %}<small id="doi-prefix-status" class="form-text text-muted"></small>{% endif %}
+            </div>
+            <div class="form-group">
+              <label for="homepage_url">Homepage URL</label>
+              <input type="text" id="homepage_url" name="homepage_url" class="form-control" value="{{ source.homepage_url|default:'' }}">
+            </div>
+            <button type="submit" class="btn btn-primary">{% if source %}Save changes{% else %}Create source{% endif %}</button>
+            {% if source %}
+            <a href="{% url 'optimap:manage-source-detail' source.id %}" class="btn btn-link">Cancel</a>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script type="text/javascript">
+  document.querySelectorAll(".use-candidate-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.getElementById("name").value = btn.dataset.name;
+      document.getElementById("url_field").value = btn.dataset.url;
+      document.getElementById("source_type").value = "oai-pmh";
+      // Homepage URL = scheme + host of the discovered OAI-PMH endpoint,
+      // stripped of any path — a best guess the admin can still edit.
+      try {
+        document.getElementById("homepage_url").value = new URL(btn.dataset.url).origin;
+      } catch (e) {
+        // Malformed URL (shouldn't happen for a validated candidate) — leave
+        // Homepage URL untouched rather than fill it with garbage.
+      }
+      refreshOpenalexButtonState();
+      checkDuplicates();
+    });
+  });
+
+  {% if not source %}
+  // --- Duplicate detection: warn (don't silently block) before create. ---
+  var duplicateWarningEl = document.getElementById("duplicate-warning");
+  var duplicateMatches = [];
+  var duplicateCheckTimer = null;
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+    });
+  }
+
+  function renderDuplicateWarning() {
+    if (!duplicateMatches.length) {
+      duplicateWarningEl.style.display = "none";
+      duplicateWarningEl.innerHTML = "";
+      return;
+    }
+    var links = duplicateMatches.map(function (m) {
+      return '<a href="' + m.detail_url + '" target="_blank" rel="noopener">' + escapeHtml(m.name) + "</a>";
+    }).join(", ");
+    duplicateWarningEl.innerHTML = "<i class=\"fas fa-exclamation-triangle\"></i> This looks like it might already exist as " + links + ".";
+    duplicateWarningEl.style.display = "";
+  }
+
+  function checkDuplicates() {
+    var urlField = document.getElementById("url_field").value.trim();
+    var issnL = document.getElementById("issn_l").value.trim();
+    var openalexId = document.getElementById("openalex_id").value.trim();
+    if (!urlField && !issnL && !openalexId) {
+      duplicateMatches = [];
+      renderDuplicateWarning();
+      return;
+    }
+    var params = new URLSearchParams({format: "json", check_duplicate: "1"});
+    if (urlField) params.set("url_field", urlField);
+    if (issnL) params.set("issn_l", issnL);
+    if (openalexId) params.set("openalex_id", openalexId);
+    fetch("{% url 'optimap:manage-source-new' %}?" + params.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        duplicateMatches = data.matches || [];
+        renderDuplicateWarning();
+      })
+      .catch(function () { /* transient network error — not worth surfacing here */ });
+  }
+
+  function debouncedCheckDuplicates() {
+    clearTimeout(duplicateCheckTimer);
+    duplicateCheckTimer = setTimeout(checkDuplicates, 400);
+  }
+
+  ["url_field", "issn_l", "openalex_id"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", debouncedCheckDuplicates);
+  });
+
+  document.getElementById("source-form").addEventListener("submit", function (e) {
+    if (duplicateMatches.length && document.getElementById("confirm_duplicate").value !== "1") {
+      var names = duplicateMatches.map(function (m) { return m.name; }).join(", ");
+      if (!window.confirm("This looks like it might already exist as: " + names + "\n\nCreate it anyway?")) {
+        e.preventDefault();
+        return;
+      }
+      document.getElementById("confirm_duplicate").value = "1";
+    }
+  });
+
+  // --- "Suggest from OpenAlex" — fills OpenAlex ID / ISSN-L / DOI prefix,
+  // all of which stay freely editable afterward. ---
+  var suggestBtn = document.getElementById("openalex-suggest-btn");
+  var candidatesEl = document.getElementById("openalex-candidates");
+  var doiStatusEl = document.getElementById("doi-prefix-status");
+
+  function refreshOpenalexButtonState() {
+    var hasName = document.getElementById("name").value.trim().length > 0;
+    suggestBtn.disabled = !hasName;
+    suggestBtn.title = hasName
+      ? "Search OpenAlex for this source's ID, ISSN-L, and DOI prefix."
+      : "Fill in the Name field first (or pick a discovered OAI-PMH endpoint above) to search OpenAlex.";
+  }
+  document.getElementById("name").addEventListener("input", refreshOpenalexButtonState);
+  refreshOpenalexButtonState();
+
+  function renderOpenalexCandidates(candidates) {
+    candidatesEl.innerHTML = "";
+    if (!candidates.length) {
+      candidatesEl.style.display = "";
+      var none = document.createElement("div");
+      none.className = "list-group-item text-muted small";
+      none.textContent = "No OpenAlex source found for that name — enter values manually.";
+      candidatesEl.appendChild(none);
+      return;
+    }
+    candidatesEl.style.display = "";
+    candidates.forEach(function (c) {
+      var item = document.createElement("div");
+      item.className = "list-group-item d-flex justify-content-between align-items-center";
+      var label = document.createElement("div");
+      label.innerHTML = "<strong>" + escapeHtml(c.name) + "</strong><br>"
+        + "<span class=\"small text-muted\">" + escapeHtml(c.openalex_id)
+        + (c.issn_l ? " &middot; ISSN-L " + escapeHtml(c.issn_l) : "")
+        + (c.works_count != null ? " &middot; " + c.works_count + " works" : "")
+        + "</span>";
+      item.appendChild(label);
+      var useBtn = document.createElement("button");
+      useBtn.type = "button";
+      useBtn.className = "btn btn-sm btn-primary";
+      useBtn.textContent = "Use this";
+      useBtn.addEventListener("click", function () { useOpenalexCandidate(c); });
+      item.appendChild(useBtn);
+      candidatesEl.appendChild(item);
+    });
+  }
+
+  function useOpenalexCandidate(c) {
+    document.getElementById("openalex_id").value = c.openalex_id;
+    document.getElementById("issn_l").value = c.issn_l || "";
+    candidatesEl.style.display = "none";
+    checkDuplicates();
+
+    doiStatusEl.textContent = "Guessing DOI prefix from this source's works…";
+    fetch("{% url 'optimap:manage-source-new' %}?format=json&openalex_doi_prefix=" + encodeURIComponent(c.openalex_id))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.doi_prefix) {
+          document.getElementById("doi_prefix").value = data.doi_prefix;
+          doiStatusEl.textContent = "Guessed from a sample of this source's works — double-check before saving.";
+        } else {
+          doiStatusEl.textContent = "Couldn't guess a DOI prefix from this source's works — enter one manually if needed.";
+        }
+      })
+      .catch(function () {
+        doiStatusEl.textContent = "";
+      });
+  }
+
+  suggestBtn.addEventListener("click", function () {
+    var name = document.getElementById("name").value.trim();
+    if (!name) return;
+    suggestBtn.disabled = true;
+    suggestBtn.textContent = "Searching…";
+    fetch("{% url 'optimap:manage-source-new' %}?format=json&openalex_search=" + encodeURIComponent(name))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        renderOpenalexCandidates(data.candidates || []);
+      })
+      .catch(function () {
+        renderOpenalexCandidates([]);
+      })
+      .finally(function () {
+        suggestBtn.textContent = "Suggest from OpenAlex";
+        refreshOpenalexButtonState();
+      });
+  });
+  {% endif %}
+</script>
+{% endblock scripts %}

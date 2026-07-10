@@ -27,7 +27,8 @@ main {
 main .locate-container,
 main .work-landing-page,
 main .works-page,
-main .facet-page {
+main .facet-page,
+main .manage-page {
   white-space: normal;
 }
 

@@ -10,6 +10,11 @@ from works.openalex_matcher import get_openalex_matcher
 logger = logging.getLogger(__name__)
 
 
+def openalex_enrichment_note(openalex_fields):
+    """One-word summary of a ``build_openalex_fields()`` result for per-work UI log lines."""
+    return "matched" if openalex_fields.get("openalex_id") else "no match"
+
+
 def build_openalex_fields(title, doi=None, author=None, existing_metadata=None):
     """
     Match a work against OpenAlex and return the appropriate fields dictionary.
@@ -32,93 +37,111 @@ def build_openalex_fields(title, doi=None, author=None, existing_metadata=None):
     openalex_fields = {}
     metadata_provenance = {}
 
+    # Only the call into the matcher (network I/O + the matcher's own request
+    # handling) is treated as an expected-to-sometimes-fail operation here —
+    # request-level failures are already normalised to a `None`/`[]` return by
+    # OpenAlexMatcher._make_request, so a raise reaching this point means
+    # something unexpected happened in the matcher itself (not "no match").
+    # Everything *after* a successful call — assembling `openalex_fields` from
+    # the returned dicts below — is intentionally left unguarded: a bug there
+    # (e.g. an unexpected shape from `openalex_data`) should propagate to the
+    # harvester's own per-record error handling rather than being silently
+    # logged as an indistinguishable "matching failed" / "no match" line.
     try:
         matcher = get_openalex_matcher()
         openalex_data, partial_matches = matcher.match_publication(title=title, doi=doi, author=author)
-
-        if openalex_data:
-            logger.debug("OpenAlex match found for: %s", title[:50] if title else "No title")
-
-            if existing_metadata.get("authors"):
-                openalex_fields["authors"] = existing_metadata["authors"]
-                metadata_provenance["authors"] = "original_source"
-            elif openalex_data.get("authors"):
-                openalex_fields["authors"] = openalex_data["authors"]
-                metadata_provenance["authors"] = "openalex"
-
-            if existing_metadata.get("keywords"):
-                openalex_fields["keywords"] = existing_metadata["keywords"]
-                metadata_provenance["keywords"] = "original_source"
-            elif openalex_data.get("keywords"):
-                openalex_fields["keywords"] = openalex_data["keywords"]
-                metadata_provenance["keywords"] = "openalex"
-
-            if openalex_data.get("topics"):
-                openalex_fields["topics"] = openalex_data["topics"]
-                metadata_provenance["topics"] = "openalex"
-
-            if openalex_data.get("type"):
-                openalex_fields["type"] = openalex_data["type"]
-                metadata_provenance["type"] = "openalex"
-
-            openalex_fields["openalex_id"] = openalex_data.get("openalex_id")
-            openalex_fields["openalex_fulltext_origin"] = openalex_data.get("openalex_fulltext_origin")
-            openalex_fields["openalex_is_retracted"] = openalex_data.get("openalex_is_retracted", False)
-            openalex_fields["openalex_ids"] = openalex_data.get("openalex_ids", {})
-            openalex_fields["openalex_open_access_status"] = openalex_data.get("openalex_open_access_status")
-
-            # Hosting copies/versions (credited to OpenAlex). Fill-if-empty: only
-            # set when OpenAlex actually returned locations so a re-enrich does
-            # not blank an existing list.
-            if openalex_data.get("locations"):
-                openalex_fields["locations"] = openalex_data["locations"]
-                metadata_provenance["locations"] = "openalex"
-
-            for biblio_key in ("volume", "issue", "first_page", "last_page"):
-                if openalex_data.get(biblio_key):
-                    openalex_fields[biblio_key] = openalex_data[biblio_key]
-                    metadata_provenance[biblio_key] = "openalex"
-
-            # Record DOI version fallback so provenance reflects the mismatch.
-            if partial_matches:
-                first_match = partial_matches[0]
-                if first_match.get("queried_doi"):
-                    metadata_provenance["openalex_doi_version_fallback"] = {
-                        "queried_doi": first_match["queried_doi"],
-                        "matched_doi": first_match.get("matched_doi"),
-                    }
-
-            metadata_provenance["openalex_metadata"] = "openalex"
-
-        elif partial_matches:
-            openalex_fields["openalex_id"] = None
-            openalex_fields["openalex_match_info"] = partial_matches
-            logger.debug("OpenAlex partial matches found for: %s", title[:50] if title else "No title")
-
-            if existing_metadata.get("authors"):
-                openalex_fields["authors"] = existing_metadata["authors"]
-                metadata_provenance["authors"] = "original_source"
-            if existing_metadata.get("keywords"):
-                openalex_fields["keywords"] = existing_metadata["keywords"]
-                metadata_provenance["keywords"] = "original_source"
-
-        else:
-            openalex_fields["openalex_id"] = None
-            if doi:
-                logger.warning("No OpenAlex match for work with DOI %s: %s", doi, title[:50] if title else "No title")
-            else:
-                logger.debug("No OpenAlex match for: %s", title[:50] if title else "No title")
-
-            if existing_metadata.get("authors"):
-                openalex_fields["authors"] = existing_metadata["authors"]
-                metadata_provenance["authors"] = "original_source"
-            if existing_metadata.get("keywords"):
-                openalex_fields["keywords"] = existing_metadata["keywords"]
-                metadata_provenance["keywords"] = "original_source"
-
     except Exception as openalex_err:
         logger.warning("OpenAlex matching failed for '%s': %s", title[:50] if title else "No title", openalex_err)
         openalex_fields["openalex_id"] = None
+        if existing_metadata.get("authors"):
+            openalex_fields["authors"] = existing_metadata["authors"]
+            metadata_provenance["authors"] = "original_source"
+        if existing_metadata.get("keywords"):
+            openalex_fields["keywords"] = existing_metadata["keywords"]
+            metadata_provenance["keywords"] = "original_source"
+        return openalex_fields, metadata_provenance
+
+    if openalex_data:
+        logger.debug("OpenAlex match found for: %s", title[:50] if title else "No title")
+
+        if existing_metadata.get("authors"):
+            openalex_fields["authors"] = existing_metadata["authors"]
+            metadata_provenance["authors"] = "original_source"
+        elif openalex_data.get("authors"):
+            openalex_fields["authors"] = openalex_data["authors"]
+            metadata_provenance["authors"] = "openalex"
+
+        if existing_metadata.get("keywords"):
+            openalex_fields["keywords"] = existing_metadata["keywords"]
+            metadata_provenance["keywords"] = "original_source"
+        elif openalex_data.get("keywords"):
+            openalex_fields["keywords"] = openalex_data["keywords"]
+            metadata_provenance["keywords"] = "openalex"
+
+        if openalex_data.get("topics"):
+            openalex_fields["topics"] = openalex_data["topics"]
+            metadata_provenance["topics"] = "openalex"
+
+        if openalex_data.get("type"):
+            openalex_fields["type"] = openalex_data["type"]
+            metadata_provenance["type"] = "openalex"
+
+        openalex_fields["openalex_id"] = openalex_data.get("openalex_id")
+        openalex_fields["openalex_fulltext_origin"] = openalex_data.get("openalex_fulltext_origin")
+        openalex_fields["openalex_is_retracted"] = openalex_data.get("openalex_is_retracted", False)
+        openalex_fields["openalex_ids"] = openalex_data.get("openalex_ids", {})
+        openalex_fields["openalex_open_access_status"] = openalex_data.get("openalex_open_access_status")
+
+        # ORCID-bearing author identity records for link_openalex_authors() to
+        # relationally link via WorkAuthor — independent of whichever "authors"
+        # display-name list won above (that's Work.authors, a plain ArrayField;
+        # this populates the separate Author/WorkAuthor M2M, see
+        # works/services/authors.py). Always propagate on a confirmed match,
+        # regardless of the existing_metadata authors precedence.
+        if openalex_data.get("author_records"):
+            openalex_fields["author_records"] = openalex_data["author_records"]
+
+        # Hosting copies/versions (credited to OpenAlex). Fill-if-empty: only
+        # set when OpenAlex actually returned locations so a re-enrich does
+        # not blank an existing list.
+        if openalex_data.get("locations"):
+            openalex_fields["locations"] = openalex_data["locations"]
+            metadata_provenance["locations"] = "openalex"
+
+        for biblio_key in ("volume", "issue", "first_page", "last_page"):
+            if openalex_data.get(biblio_key):
+                openalex_fields[biblio_key] = openalex_data[biblio_key]
+                metadata_provenance[biblio_key] = "openalex"
+
+        # Record DOI version fallback so provenance reflects the mismatch.
+        if partial_matches:
+            first_match = partial_matches[0]
+            if first_match.get("queried_doi"):
+                metadata_provenance["openalex_doi_version_fallback"] = {
+                    "queried_doi": first_match["queried_doi"],
+                    "matched_doi": first_match.get("matched_doi"),
+                }
+
+        metadata_provenance["openalex_metadata"] = "openalex"
+
+    elif partial_matches:
+        openalex_fields["openalex_id"] = None
+        openalex_fields["openalex_match_info"] = partial_matches
+        logger.debug("OpenAlex partial matches found for: %s", title[:50] if title else "No title")
+
+        if existing_metadata.get("authors"):
+            openalex_fields["authors"] = existing_metadata["authors"]
+            metadata_provenance["authors"] = "original_source"
+        if existing_metadata.get("keywords"):
+            openalex_fields["keywords"] = existing_metadata["keywords"]
+            metadata_provenance["keywords"] = "original_source"
+
+    else:
+        openalex_fields["openalex_id"] = None
+        if doi:
+            logger.warning("No OpenAlex match for work with DOI %s: %s", doi, title[:50] if title else "No title")
+        else:
+            logger.debug("No OpenAlex match for: %s", title[:50] if title else "No title")
 
         if existing_metadata.get("authors"):
             openalex_fields["authors"] = existing_metadata["authors"]

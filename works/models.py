@@ -697,6 +697,15 @@ class EmailLog(models.Model):
 
 
 class HarvestingEvent(models.Model):
+    TRIGGER_SOURCE_CHOICES = [
+        ("ui", "Manage UI"),
+        ("admin-action", "Admin action"),
+        ("management-command", "Management command"),
+        ("schedule", "Scheduled"),
+        ("api", "API"),
+        ("manual", "Manual"),
+    ]
+
     source = models.ForeignKey("Source", on_delete=models.CASCADE, related_name="harvesting_events")
     user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
@@ -705,14 +714,34 @@ class HarvestingEvent(models.Model):
         max_length=16,
         choices=[
             ("pending", "Pending"),
-            ("in_progress", "In Progress"),
+            ("in_progress", "Running"),
             ("completed", "Completed"),
             ("failed", "Failed"),
+            ("cancelled", "Cancelled"),
         ],
         default="pending",
     )
+    trigger_source = models.CharField(
+        max_length=32,
+        choices=TRIGGER_SOURCE_CHOICES,
+        default="schedule",
+        db_index=True,
+        help_text="What triggered this harvest: the /manage/ UI, an admin action, a "
+        "management command, a recurring Django-Q schedule, the contribute-by-DOI API, "
+        "or another manual call.",
+    )
     error_message = models.TextField(blank=True, default="")
     log_text = models.TextField(blank=True, default="")
+    max_records = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="The max_records cap this run used, or NULL for an unbounded/full run. "
+        "Crossref's incremental 'since last harvest' window (see harvest_crossref_prefix) "
+        "only advances past a completed run when this is NULL — a capped run (e.g. a "
+        "20-record smoke test) must not become the watermark, or records older than it "
+        "that were never actually pulled would be permanently skipped by every later "
+        "incremental run.",
+    )
     records_added = models.IntegerField(null=True, blank=True)
     records_updated = models.IntegerField(null=True, blank=True)
     records_skipped = models.IntegerField(null=True, blank=True)
@@ -726,6 +755,156 @@ class HarvestingEvent(models.Model):
 
     def __str__(self):
         return f"Harvesting Event ({self.status}) for {self.source.url_field} at {self.started_at}"
+
+    #: Ceiling on ``log_text``'s length. Without one, a harvest logging one
+    #: line per work (``log_work()``, tens of thousands of records for some
+    #: sources) would make ``log_text`` grow unboundedly — and every
+    #: subsequent ``save()`` of this row resends the *entire* field, so total
+    #: I/O across a run would scale quadratically with record count. Trimming
+    #: from the front keeps each append/save O(1) instead of O(lines so far).
+    _LOG_TEXT_MAX_CHARS = 50_000
+
+    def _append_log_line(self, line: str) -> None:
+        """Append a timestamped line to ``log_text`` in memory, trimming the
+        oldest lines once the field exceeds ``_LOG_TEXT_MAX_CHARS``.
+        """
+        stamp = timezone.now().strftime("%H:%M:%S")
+        self.log_text = f"{self.log_text}[{stamp}] {line}\n" if self.log_text else f"[{stamp}] {line}\n"
+        if len(self.log_text) > self._LOG_TEXT_MAX_CHARS:
+            tail = self.log_text[-self._LOG_TEXT_MAX_CHARS :]
+            newline = tail.find("\n")
+            self.log_text = "[... earlier log lines truncated ...]\n" + (
+                tail[newline + 1 :] if newline != -1 else tail
+            )
+
+    def _save_log_text(self) -> None:
+        """Persist just ``log_text``.
+
+        A logging write must never be able to abort an otherwise-successful
+        harvest: if the row can't be saved right now (e.g. a stale in-memory
+        copy of this event whose ``user`` was deleted by something else while
+        the harvest was running), the line is dropped and a warning is logged
+        instead of propagating — the incremental log is a convenience for the
+        live-log poller, not something the harvest's correctness depends on.
+        """
+        try:
+            self.save(update_fields=["log_text"])
+        except Exception:  # noqa: BLE001 — logging must never abort the harvest itself
+            logger.warning("HarvestingEvent: could not persist log line for event id=%s", self.pk, exc_info=True)
+
+    def append_log(self, line: str) -> None:
+        """Append a timestamped line to ``log_text`` and persist just that field.
+
+        Used for incremental progress logging during a harvest (per OAI page /
+        resumption token, per RSS batch, every N Crossref rows) so the
+        ``/manage/harvests/<id>/`` live-log poller has content to show before
+        the run completes.
+        """
+        self._append_log_line(line)
+        self._save_log_text()
+
+    _LOG_WORK_FLUSH_INTERVAL = 5
+
+    def log_work(self, line: str) -> None:
+        """Append a per-work progress line, flushing to the DB every
+        ``_LOG_WORK_FLUSH_INTERVAL`` calls rather than every single one.
+
+        Harvesters call this once per record (retrieved/enriched/saved
+        summarised into one line) so the live-log poller on
+        ``/manage/harvests/<id>/`` shows every work, not just per-page/per-batch
+        summaries. A full-DB-write-per-record would multiply write volume by
+        the record count on large harvests (tens of thousands for some
+        sources); batching the flush keeps the live view almost-real-time
+        without that cost. Any buffered-but-unflushed lines are still
+        persisted at the end of the run — ``complete_harvest``/``fail_harvest``
+        write whatever is in ``self.log_text`` regardless of this counter.
+        """
+        self._append_log_line(line)
+        self._log_work_pending = getattr(self, "_log_work_pending", 0) + 1
+        if self._log_work_pending < self._LOG_WORK_FLUSH_INTERVAL:
+            return
+        self._log_work_pending = 0
+        self._save_log_text()
+
+    @property
+    def is_stale(self) -> bool:
+        """True when a ``pending``/``in_progress`` event has been sitting that
+        way for longer than a reliable threshold.
+
+        Display-only signal for ``/manage/`` (issue #130 follow-up). The two
+        statuses get different thresholds because they fail differently:
+
+        - ``in_progress``: Django-Q force-kills a task past ``Q_CLUSTER["timeout"]``
+          without ever running its ``except``/``finally`` handlers, so
+          ``fail_harvest()`` is never called and the event is left showing
+          ``in_progress`` forever with no error message. Past that same
+          timeout, the event genuinely can no longer have a live worker
+          behind it.
+        - ``pending``: a worker claims the queued task (and Django-Q's own
+          bookkeeping reflects that) well before it would ever hit the task
+          timeout, so a claimed-but-still-``pending`` event usually means the
+          worker crashed or hung *before* even calling ``start_harvesting_event()``
+          — the very first thing the harvester does. Waiting for the full
+          task timeout here would leave this essentially undetectable for
+          most of that window, so ``pending`` uses the much shorter
+          ``HARVEST_PENDING_STALE_MINUTES``.
+        """
+        if self.status not in ("pending", "in_progress"):
+            return False
+        if self.status == "pending":
+            threshold = settings.HARVEST_PENDING_STALE_MINUTES * 60
+        else:
+            threshold = settings.Q_CLUSTER.get("timeout", 600)
+        age = (timezone.now() - self.started_at).total_seconds()
+        return age > threshold
+
+    @property
+    def staleness_message(self) -> str:
+        """Human-readable explanation for ``is_stale`` (empty when not stale)."""
+        if not self.is_stale:
+            return ""
+        if self.status == "pending":
+            return (
+                "Still queued after an unusually long wait — check that a Django-Q cluster is running "
+                "and that no worker crashed right after claiming this task."
+            )
+        return (
+            "Running far longer than Django-Q's own task timeout — the worker most likely hit that "
+            "timeout and was killed without ever recording a failure here. This event may be orphaned."
+        )
+
+
+class HarvestRecord(models.Model):
+    """Per-work outcome of one harvesting event — created vs. updated (#133).
+
+    Populated alongside ``HarvestStats`` in the same per-record save loop
+    (``works.harvesting.common._save_or_update_work``) where the created/updated
+    outcome is already known. Lets ``/manage/harvests/<id>/`` show the exact,
+    paginated set of "Newly harvested" vs "Updated" works for one event, and
+    ``Work.harvest_records`` gives a per-work harvest history. Rows cascade-delete
+    with their event.
+    """
+
+    ACTION_CHOICES = [
+        ("created", "Created"),
+        ("updated", "Updated"),
+    ]
+
+    event = models.ForeignKey(HarvestingEvent, on_delete=models.CASCADE, related_name="records")
+    work = models.ForeignKey("Work", on_delete=models.CASCADE, related_name="harvest_records")
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["event", "work"], name="uniq_harvest_record_event_work"),
+        ]
+        indexes = [
+            models.Index(fields=["event", "action"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_action_display()}: work {self.work_id} in event {self.event_id}"
 
 
 class UserProfile(models.Model):

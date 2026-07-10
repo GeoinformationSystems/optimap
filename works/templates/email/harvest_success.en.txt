@@ -17,3 +17,6 @@ Started:   {{ event_started }}
 Completed: {{ event_completed }}
 {% if warning_summary %}
 {{ warning_summary }}{% endif %}
+{% if detail_url %}
+View this harvest: {{ detail_url }}
+{% endif %}

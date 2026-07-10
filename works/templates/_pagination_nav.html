@@ -2,16 +2,19 @@
 {# SPDX-License-Identifier: GPL-3.0-or-later #}
 {# Shared pagination nav — include with page_obj, page_size, and optional pagination_label. #}
 {# If filter_collection is in context its identifier is appended to all pagination links.   #}
+{# Optional page_param overrides the query-string key (default "page") — use a distinct     #}
+{# name when a page hosts more than one independently paginated list.                        #}
+{% with page_param=page_param|default:"page" %}
 <nav aria-label="{{ pagination_label|default:'pagination' }}" class="mt-3">
   <ul class="pagination justify-content-center">
     {% if page_obj.has_previous %}
       <li class="page-item">
-        <a class="page-link" href="?page=1&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="First">
+        <a class="page-link" href="?{{ page_param }}=1&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="First">
           <span aria-hidden="true">&laquo;&laquo;</span>
         </a>
       </li>
       <li class="page-item">
-        <a class="page-link" href="?page={{ page_obj.previous_page_number }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="Previous">
+        <a class="page-link" href="?{{ page_param }}={{ page_obj.previous_page_number }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="Previous">
           <span aria-hidden="true">&laquo;</span>
         </a>
       </li>
@@ -28,18 +31,18 @@
       {% if page_obj.number == num %}
         <li class="page-item active"><span class="page-link">{{ num }} <span class="sr-only">(current)</span></span></li>
       {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
-        <li class="page-item"><a class="page-link" href="?page={{ num }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}">{{ num }}</a></li>
+        <li class="page-item"><a class="page-link" href="?{{ page_param }}={{ num }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}">{{ num }}</a></li>
       {% endif %}
     {% endfor %}
 
     {% if page_obj.has_next %}
       <li class="page-item">
-        <a class="page-link" href="?page={{ page_obj.next_page_number }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="Next">
+        <a class="page-link" href="?{{ page_param }}={{ page_obj.next_page_number }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="Next">
           <span aria-hidden="true">&raquo;</span>
         </a>
       </li>
       <li class="page-item">
-        <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="Last">
+        <a class="page-link" href="?{{ page_param }}={{ page_obj.paginator.num_pages }}&size={{ page_size }}{% if filter_collection %}&collection={{ filter_collection.identifier }}{% endif %}" aria-label="Last">
           <span aria-hidden="true">&raquo;&raquo;</span>
         </a>
       </li>
@@ -53,3 +56,4 @@
     {% endif %}
   </ul>
 </nav>
+{% endwith %}

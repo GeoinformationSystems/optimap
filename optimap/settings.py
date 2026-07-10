@@ -339,9 +339,18 @@ download URLs directly.
 
 Q_CLUSTER = {
     "name": "optimap",
-    "workers": 1,
-    "timeout": 60 * 10,  # seconds, must be less than retry
-    "retry": 60 * 11,
+    # Each worker is a separate process with its own in-memory rate limiters
+    # (OpenAlexMatcher, Nominatim client), so more workers multiply the
+    # effective request rate against external APIs tuned for a single caller
+    # (see the *_THROTTLE settings below) — raise with that in mind.
+    "workers": env.int("OPTIMAP_Q_CLUSTER_WORKERS", default=2),
+    # A harvest's per-record calls are individually bounded (see e.g.
+    # MWR_HTTP_TIMEOUT, Nominatim's timeout) but can still sum past a short
+    # task timeout. retry must stay greater than timeout (Django-Q
+    # requirement). See start_harvesting_event() for how a killed/retried
+    # task is resumed or refused rather than duplicated.
+    "timeout": 60 * 100,  # seconds, must be less than retry
+    "retry": 60 * 110,
     "save_limit": 0,  # unlimited
     "queue_limit": 50,
     "bulk": 10,
@@ -426,6 +435,12 @@ INACTIVITY_DELETION_DAYS = env.int("OPTIMAP_INACTIVITY_DELETION_DAYS", default=3
 # skipped). Threshold avoids noise on normally on-time runs.
 SCHEDULED_TASK_CATCHUP_THRESHOLD_MINUTES = env.int("OPTIMAP_SCHEDULED_TASK_CATCHUP_THRESHOLD_MINUTES", default=5)
 
+# HarvestingEvent.is_stale: a still-pending event (claimed by a worker but not
+# yet even flipped to in_progress) is a much stronger anomaly signal than a
+# still-in_progress one, which can legitimately run for hours — so it gets its
+# own, far shorter threshold instead of reusing Q_CLUSTER["timeout"].
+HARVEST_PENDING_STALE_MINUTES = env.int("OPTIMAP_HARVEST_PENDING_STALE_MINUTES", default=5)
+
 # Contact email for API user agents (OpenAlex, Wikidata, etc.)
 CONTACT_EMAIL = "login@optimap.science"
 
@@ -494,7 +509,7 @@ OPTIMAP_OPENAIRE_ENRICH_THROTTLE = float(os.getenv("OPTIMAP_OPENAIRE_ENRICH_THRO
 # single-task runs (which become un-killable until they finish or time out).
 OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT = env.int("OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT", default=0)
 # Wall-clock budget (seconds) one OpenAIRE enrichment chunk runs before
-# re-enqueuing a continuation. Keep it below Q_CLUSTER["timeout"] (600s) so a
+# re-enqueuing a continuation. Keep it below Q_CLUSTER["timeout"] (6000s) so a
 # chunk never outlives the cluster timeout.
 OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS = env.int("OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS", default=8 * 60)
 # Abort an OpenAIRE sweep / backfill (email staff + fail the task) after this
@@ -518,7 +533,7 @@ OPTIMAP_OPENAIRE_REFRESH_TOKEN_DAYS = int(os.getenv("OPTIMAP_OPENAIRE_REFRESH_TO
 # are cheap; keep this small).
 OPTIMAP_ORCID_BACKFILL_THROTTLE = float(os.getenv("OPTIMAP_ORCID_BACKFILL_THROTTLE", 0.1))
 # Wall-clock budget (seconds) one --async chunk runs before re-enqueuing a
-# continuation. Keep below Q_CLUSTER["timeout"] (600s) so a chunk never outlives
+# continuation. Keep below Q_CLUSTER["timeout"] (6000s) so a chunk never outlives
 # the cluster timeout and the stop signal is honoured between chunks.
 OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS = env.int("OPTIMAP_ORCID_BACKFILL_CHUNK_SECONDS", default=8 * 60)
 # Abort the backfill (email staff + fail the task) after this many *consecutive*

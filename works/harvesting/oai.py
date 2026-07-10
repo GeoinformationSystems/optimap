@@ -32,6 +32,10 @@ from .common import (
     ensure_collection_for_source,
     fail_harvest,
     get_or_create_admin_command_user,
+    log_work_enriched,
+    log_work_failed,
+    log_work_retrieved,
+    log_work_skip,
     parse_publication_date,
     render_harvest_email,
     resolve_user,
@@ -47,9 +51,16 @@ from .sessions import (
     _oai_session,
     _short_body,
     _try_solve_pow_challenge,
+    fetch_with_deadline,
 )
 
 logger = logging.getLogger(__name__)
+# Wall-clock ceiling for a single landing-page fetch (see fetch_with_deadline):
+# generous enough to cover the session's own retry budget (up to 3 attempts at
+# 10s each, plus backoff) with room to spare, while keeping a stuck/trickling
+# server from silently occupying a worker for anywhere near Django-Q's own
+# task timeout.
+_LANDING_PAGE_FETCH_DEADLINE = 45
 DOI_REGEX = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 # Matches plain ISSNs (NNNN-NNNN) and info:eu-repo URI variants used by Pensoft/ARPHA
 # and other OAI-PMH endpoints: info:eu-repo/semantics/altIdentifier/[pe]issn/<ISSN>
@@ -194,9 +205,11 @@ def parse_oai_xml_and_save_works(
                     else:
                         logger.debug("Skipping same-source duplicate %s", doi_text or identifier_value)
                     stats.record(action)
+                    log_work_skip(event, title_value, _cross_source)
                     continue
 
             logger.debug("Processing work: %s", title_value[:50] if title_value else "No title")
+            log_work_retrieved(event, title_value)
 
             src_obj = source
 
@@ -227,12 +240,16 @@ def parse_oai_xml_and_save_works(
             try:
                 logger.debug("Fetching HTML content for geometry extraction: %s", identifier_value)
                 http = session if session is not None else requests
-                resp = http.get(identifier_value, timeout=10)
+                resp = fetch_with_deadline(
+                    lambda: http.get(identifier_value, timeout=10), _LANDING_PAGE_FETCH_DEADLINE
+                )
                 # Some landing pages redirect to the same bot-protected host on a
                 # different scheme (HTTP vs HTTPS). Secure cookies aren't sent on
                 # HTTP redirects, so solve any fresh PoW challenge here too.
                 if resp.status_code == 403 and session is not None and _try_solve_pow_challenge(session, resp):
-                    resp = http.get(identifier_value, timeout=10)
+                    resp = fetch_with_deadline(
+                        lambda: http.get(identifier_value, timeout=10), _LANDING_PAGE_FETCH_DEADLINE
+                    )
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.content, "html.parser")
                 extracted, geometry_source_label = extract_geometry_from_html(
@@ -247,9 +264,13 @@ def parse_oai_xml_and_save_works(
                         geometry_source_label,
                     )
                 ts, te = extract_timeperiod_from_html(soup)
-                if ts:
+                # extract_timeperiod_from_html returns [None]/[None] (not []) when the
+                # page has no dates at all — guard on a real (non-None) value, not
+                # truthiness, or every work with no temporal metadata gets [None]
+                # stored instead of staying [] (see crossref.py's re-harvest path,
+                # which already has this guard).
+                if any(d is not None for d in (ts or [])) or any(d is not None for d in (te or [])):
                     period_start = ts
-                if te:
                     period_end = te
             except Exception as fetch_err:
                 logger.debug("Error fetching HTML for %s: %s", identifier_value, fetch_err)
@@ -273,6 +294,7 @@ def parse_oai_xml_and_save_works(
             openalex_fields, metadata_provenance = build_openalex_fields(
                 title=title_value, doi=doi_text, author=author_field, existing_metadata=existing_metadata
             )
+            log_work_enriched(event, title_value, openalex_fields)
 
             if geometry_source_label:
                 metadata_provenance["geometry"] = geometry_source_label
@@ -335,6 +357,7 @@ def parse_oai_xml_and_save_works(
                         logger.info("Updated work id=%s: %s", work.id, title_value[:80] if title_value else "No title")
             except Exception as save_err:
                 logger.error("Failed to save work '%s': %s", title_value[:80] if title_value else "No title", save_err)
+                log_work_failed(event, title_value, save_err)
                 continue
 
         except Exception as e:
@@ -425,7 +448,9 @@ def _year_chunk_items(base_url: str, list_params: dict, start_year: int, end_yea
         )
 
 
-def harvest_oai_endpoint(source_id, user=None, max_records=None, update_existing=False, event_id=None):
+def harvest_oai_endpoint(
+    source_id, user=None, max_records=None, update_existing=False, event_id=None, trigger_source=None
+):
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
     # Issue #192: the generic OAI-PMH harvester creates a Collection for each
@@ -434,7 +459,10 @@ def harvest_oai_endpoint(source_id, user=None, max_records=None, update_existing
     # name/description before flipping it on. No-op when source.collection is
     # already set (e.g. via harvest_sources --insert-sources).
     ensure_collection_for_source(source)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting OAI-PMH harvest from {source.url_field}")
 
     new_count = None
     spatial_count = None
@@ -489,6 +517,7 @@ def harvest_oai_endpoint(source_id, user=None, max_records=None, update_existing
                 break
 
             logger.info("Fetching from OAI-PMH URL: %s", chunk_url)
+            event.append_log(f"Checking year {chunk_year}..." if chunk_year is not None else "Fetching records...")
             current_url = chunk_url
             page = 0
             year_had_records = False
@@ -580,6 +609,10 @@ def harvest_oai_endpoint(source_id, user=None, max_records=None, update_existing
                     stats=stats,
                     session=session,
                 )
+                event.append_log(
+                    f"Year {chunk_year}, page {page}: {stats.created} created, "
+                    f"{stats.updated} updated, {stats.skipped} skipped so far."
+                )
 
                 # Follow resumptionToken for next page within this year chunk
                 current_url = _extract_resumption_url(response.content, base_oai_url)
@@ -616,6 +649,7 @@ def harvest_oai_endpoint(source_id, user=None, max_records=None, update_existing
                 "records_seen": None,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

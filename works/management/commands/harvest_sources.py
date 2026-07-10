@@ -35,6 +35,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django_q.tasks import async_task
 
+from works.harvesting.common import count_spatial_temporal
 from works.models import Collection, HarvestingEvent, Source, Work
 from works.tasks import (
     harvest_crossref_book_list,
@@ -999,7 +1000,9 @@ class Command(BaseCommand):
                     # Django-Q task id is internal to the queue and never lands
                     # on a model the admin shows, so the event PK is the durable
                     # correlation handle.
-                    event = HarvestingEvent.objects.create(source=source, status="pending")
+                    event = HarvestingEvent.objects.create(
+                        source=source, status="pending", trigger_source="management-command"
+                    )
                     task_kwargs["event_id"] = event.id
                     task_id = async_task(task_path, source.id, **task_kwargs)
                     self.stdout.write(
@@ -1025,6 +1028,11 @@ class Command(BaseCommand):
                         "(geometry/temporal preserved when new harvest is empty)."
                     )
 
+                # Bound once and passed to every synchronous dispatch branch below —
+                # every harvest triggered by this command (sync path) is tagged the
+                # same way, whether run via --all, --source, or --source-prefix.
+                trigger_source = "management-command"
+
                 if source_type == "rss":
                     self.stdout.write("Source type: RSS/Atom")
                     harvest_rss_endpoint(
@@ -1032,6 +1040,7 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
                 elif source_type == "mountain-wetlands":
                     self.stdout.write("Source type: Mountain Wetlands Repository (MaRESS)")
@@ -1040,6 +1049,7 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
                 elif source_type == "crossref-prefix":
                     book_isbns = config.get("book_isbns")
@@ -1054,6 +1064,7 @@ class Command(BaseCommand):
                             max_records=max_records,
                             book_isbns=book_isbns,
                             update_existing=update_existing,
+                            trigger_source=trigger_source,
                         )
                     else:
                         self.stdout.write("Source type: Crossref by DOI prefix")
@@ -1083,6 +1094,7 @@ class Command(BaseCommand):
                             full=full_backfill,
                             since=since,
                             issn=source_issn,
+                            trigger_source=trigger_source,
                         )
                 elif source_type == "geoscienceworld":
                     self.stdout.write("Source type: GeoScienceWorld (Crossref + geoextent)")
@@ -1093,6 +1105,7 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
                 elif source_type == "openalex":
                     self.stdout.write("Source type: OpenAlex source")
@@ -1102,6 +1115,7 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
                 elif source_type == "datacite":
                     self.stdout.write("Source type: DataCite (IGSN samples)")
@@ -1110,6 +1124,7 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
                 elif source_type == "gfz-igsn":
                     self.stdout.write("Source type: GFZ IGSN (landing-page scrape)")
@@ -1118,6 +1133,7 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
                 else:
                     # Covers source_type in {oai-pmh, ojs, janeway} — all share the OAI harvester.
@@ -1127,19 +1143,14 @@ class Command(BaseCommand):
                         user=user,
                         max_records=max_records,
                         update_existing=update_existing,
+                        trigger_source=trigger_source,
                     )
 
                 # Get results
                 event = HarvestingEvent.objects.filter(source=source).latest("started_at")
                 pub_count = Work.objects.filter(job=event).count()
                 skipped_count = event.records_skipped or 0
-                spatial_count = Work.objects.filter(job=event).exclude(geometry__isnull=True).count()
-                temporal_count = (
-                    Work.objects.filter(job=event)
-                    .exclude(timeperiod_startdate__isnull=True)
-                    .exclude(timeperiod_startdate=[])
-                    .count()
-                )
+                spatial_count, temporal_count = count_spatial_temporal(event)
 
                 duration = (timezone.now() - harvest_start).total_seconds()
 
@@ -1363,9 +1374,18 @@ class Command(BaseCommand):
         Mirrors the synchronous dispatch in handle() so --async enqueues the
         same task target (the dotted paths the recurring schedules use) with
         the same arguments. Returns (dotted_path, kwargs); source.id is passed
-        positionally by the caller.
+        positionally by the caller. No ``trigger_source`` here: the caller
+        always pre-creates the ``HarvestingEvent`` with
+        ``trigger_source="management-command"`` and passes its id as
+        ``event_id``, which makes ``start_harvesting_event`` reuse that row
+        directly — a ``trigger_source`` kwarg on the task itself would never
+        be read.
         """
-        common = {"user": user, "max_records": max_records, "update_existing": update_existing}
+        common = {
+            "user": user,
+            "max_records": max_records,
+            "update_existing": update_existing,
+        }
 
         if source_type == "rss":
             return "works.tasks.harvest_rss_endpoint", common

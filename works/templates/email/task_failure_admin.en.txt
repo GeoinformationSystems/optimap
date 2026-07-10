@@ -1,0 +1,20 @@
+[OPTIMAP] ⚠️ Background task failed — {{ func }}
+
+Hello,
+
+Deployment: {{ base_url }}
+
+A background (Django-Q) task crashed and was recorded as a Failure.
+
+Function: {{ func }}
+Task id: {{ task_id }}
+Group: {{ group|default:"—" }}
+Stopped: {{ stopped }}
+
+Error / result:
+{{ result }}
+
+{% if task_url %}View details: {{ task_url }}{% endif %}
+
+This is an automated notification from the OPTIMAP async-task monitor
+({{ base_url }}/manage/tasks/). If this keeps happening, check the qcluster logs.

@@ -241,6 +241,15 @@ class FetchCopernicusAbstractTests(TestCase):
         self.assertIsNone(fetch_copernicus_abstract(""))
         self.assertIsNone(fetch_copernicus_abstract(None))
 
+    def test_returns_none_when_fetch_exceeds_wall_clock_deadline(self):
+        # Regression: a server that trickles a response slowly enough to keep
+        # resetting requests' own per-read timeout can hang a call far beyond
+        # its declared timeout= — fetch_with_deadline bounds that, and this
+        # function must treat the resulting TimeoutError like any other
+        # fetch failure (degrade to None, not propagate/crash the harvest).
+        with patch("works.harvesting.crossref.fetch_with_deadline", side_effect=TimeoutError("exceeded deadline")):
+            self.assertIsNone(fetch_copernicus_abstract("https://essd.copernicus.org/articles/14/4681/2022/"))
+
 
 class HarvestCrossrefPrefixEndToEndTests(TestCase):
     def setUp(self):
@@ -609,6 +618,40 @@ class HarvestCrossrefDoiContainsTests(TestCase):
         self.assertIn("from-update-date", responses.calls[0].request.url)
 
     @responses.activate
+    def test_capped_prior_event_does_not_become_incremental_watermark(self):
+        # Regression: a max_records-capped run (e.g. a 20-record smoke test)
+        # must not advance the incremental "since" window — records that
+        # existed upstream before that run but were excluded purely by the
+        # cap would otherwise be permanently skipped by every later run.
+        from django.utils import timezone
+
+        capped = HarvestingEvent.objects.create(source=self.source, status="completed", max_records=20)
+        capped.completed_at = timezone.now()
+        capped.save(update_fields=["completed_at"])
+
+        responses.add(responses.GET, "https://api.crossref.org/works", json=self._crossref_response([]), status=200)
+        harvest_crossref_prefix(self.source.id, fetch_abstract_from_publisher=False)
+        self.assertNotIn("from-update-date", responses.calls[0].request.url)
+
+    @responses.activate
+    def test_uncapped_event_before_a_capped_one_is_still_the_watermark(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        full_run = HarvestingEvent.objects.create(source=self.source, status="completed", max_records=None)
+        full_run.completed_at = timezone.now() - timedelta(days=10)
+        full_run.save(update_fields=["completed_at"])
+        capped = HarvestingEvent.objects.create(source=self.source, status="completed", max_records=20)
+        capped.completed_at = timezone.now()
+        capped.save(update_fields=["completed_at"])
+
+        responses.add(responses.GET, "https://api.crossref.org/works", json=self._crossref_response([]), status=200)
+        harvest_crossref_prefix(self.source.id, fetch_abstract_from_publisher=False)
+        expected = (full_run.completed_at.date() - timedelta(days=2)).isoformat()
+        self.assertIn(f"from-update-date%3A{expected}", responses.calls[0].request.url.replace(":", "%3A"))
+
+    @responses.activate
     def test_full_forces_backfill_ignoring_prior_event(self):
         # Even with a prior completed event, full=True drops the incremental window.
         from django.utils import timezone
@@ -726,6 +769,91 @@ class CrossrefOpenAlexEnrichmentTests(TestCase):
         self.assertTrue(Work.objects.filter(doi="10.5194/y-1-2024").exists())
         event = HarvestingEvent.objects.filter(source=self.source).latest("started_at")
         self.assertEqual(event.status, "completed")
+
+
+class CrossrefOpenAlexAuthorOrcidLinkingTests(TestCase):
+    """End-to-end regression test: a Crossref harvest whose OpenAlex match
+    carries ORCID-bearing authorships must actually create Author/WorkAuthor
+    rows — exercising the *real* build_openalex_fields() (not mocked out, as
+    ``CrossrefOpenAlexEnrichmentTests`` does above), since the bug this
+    guards against lived inside that function.
+    """
+
+    def setUp(self):
+        self.source = Source.objects.create(
+            name="Copernicus Crossref",
+            url_field="https://api.crossref.org/works?filter=prefix:10.5194",
+            source_type="crossref-prefix",
+            doi_prefix="10.5194",
+            harvest_interval_minutes=0,
+            default_work_type="article",
+        )
+
+    def _crossref_response(self, items):
+        return {"status": "ok", "message": {"total-results": len(items), "items": items, "next-cursor": ""}}
+
+    @responses.activate
+    @patch("works.harvesting.openalex.get_openalex_matcher")
+    def test_orcid_bearing_authorship_gets_linked(self, mock_get_matcher):
+        mock_get_matcher.return_value.match_publication.return_value = (
+            {
+                "openalex_id": "W123",
+                "author_records": [
+                    {"name": "Jane Doe", "orcid": "0000-0001-2345-6789", "openalex_id": "A1", "rank": 0}
+                ],
+            },
+            None,
+        )
+        item = {
+            "DOI": "10.5194/orcid-1-2024",
+            "URL": "https://doi.org/10.5194/orcid-1-2024",
+            "title": ["ORCID-linked article"],
+            "abstract": "<jats:p>a</jats:p>",
+            "published": {"date-parts": [[2024, 1, 1]]},
+        }
+        responses.add(responses.GET, "https://api.crossref.org/works", json=self._crossref_response([item]))
+
+        harvest_crossref_prefix(self.source.id, fetch_abstract_from_publisher=False)
+
+        w = Work.objects.get(doi="10.5194/orcid-1-2024")
+        self.assertTrue(w.author_links.exists())
+        linked_author = w.author_links.get()
+        self.assertEqual(linked_author.orcid, "0000-0001-2345-6789")
+
+
+class TryBokPdfExtractionErrorContainmentTests(TestCase):
+    """``_try_bok_pdf_extraction`` must catch its own errors rather than
+    relying on the caller's "failed to persist" catch — otherwise a PDF
+    fetch/parse failure gets misreported as the Work save itself failing,
+    when the save (the part that actually matters) already succeeded.
+    """
+
+    def setUp(self):
+        self.source = Source.objects.create(name="AGILE GISS", url_field="http://example.org/agile")
+        self.work = Work.objects.create(
+            title="AGILE GISS Paper",
+            doi="10.5194/agile-giss-6-2-2025",
+            source=self.source,
+            status="h",
+        )
+
+    def test_pdf_download_failure_does_not_raise(self):
+        from works.harvesting.crossref import _try_bok_pdf_extraction
+
+        with patch("works.harvesting.crossref.extract_bok_from_agile_pdf", side_effect=RuntimeError("PDF fetch boom")):
+            _try_bok_pdf_extraction(self.work, self.work.doi, session=None)  # must not raise
+
+    def test_pdf_download_failure_logs_bok_specific_message(self):
+        from works.harvesting.crossref import _try_bok_pdf_extraction
+
+        with (
+            patch("works.harvesting.crossref.extract_bok_from_agile_pdf", side_effect=RuntimeError("PDF fetch boom")),
+            self.assertLogs("works.harvesting.crossref", level="WARNING") as cm,
+        ):
+            _try_bok_pdf_extraction(self.work, self.work.doi, session=None)
+
+        self.assertTrue(any("BoK PDF extraction failed" in msg for msg in cm.output))
+        self.assertFalse(any("Failed to persist" in msg for msg in cm.output))
 
 
 class BuildCrossrefFilterExtraTests(TestCase):

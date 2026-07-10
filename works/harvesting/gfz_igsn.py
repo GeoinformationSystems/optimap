@@ -33,6 +33,8 @@ from .common import (
     complete_harvest,
     ensure_collection_for_source,
     fail_harvest,
+    log_work_failed,
+    log_work_retrieved,
     render_harvest_email,
     resolve_user,
     send_harvest_email,
@@ -110,6 +112,7 @@ def _gfz_item_to_work_kwargs(item, geometry, source, event):
     doi = attrs.get("doi")
     titles = attrs.get("titles") or []
     title = (titles[0].get("title") if titles and isinstance(titles[0], dict) else None) or doi
+    log_work_retrieved(event, title)
     landing_url = attrs.get("url") or f"https://doi.org/{doi}"
     authors = [c.get("name") for c in (attrs.get("creators") or []) if isinstance(c, dict) and c.get("name")]
     starts, ends = _temporal_from_dates(attrs.get("dates"))
@@ -166,14 +169,20 @@ def scrape_gfz_and_save_works(source, event, max_records=None, update_existing=F
     for item in iter_datacite_records(GFZ_ENUM_QUERY, sort="created", max_records=max_records):
         seen += 1
         if seen % _PROGRESS_EVERY == 0:
+            suffix = f"/{max_records}" if max_records else ""
             logger.info(
                 "GFZ IGSN: processed %d%s records (created=%d, updated=%d, skipped=%d)",
                 seen,
-                f"/{max_records}" if max_records else "",
+                suffix,
                 stats.created,
                 stats.updated,
                 stats.skipped,
             )
+            if event is not None:
+                event.append_log(
+                    f"Processed {seen}{suffix} records ({stats.created} created, "
+                    f"{stats.updated} updated, {stats.skipped} skipped)"
+                )
         doi = (item.get("attributes") or {}).get("doi") or ""
         igsn = doi.rsplit("/", 1)[-1].upper() if doi else None
         if not igsn:
@@ -201,6 +210,8 @@ def scrape_gfz_and_save_works(source, event, max_records=None, update_existing=F
                 saved += 1
         except Exception as e:
             logger.warning("Failed to persist GFZ sample %s: %s", doi, e)
+            if event is not None:
+                log_work_failed(event, kwargs.get("title") or doi, e)
 
     logger.info(
         "GFZ IGSN scrape finished: %d seen, %d created, %d skipped (%d no coordinates on landing page)",
@@ -219,20 +230,27 @@ def harvest_gfz_igsn(
     update_existing=False,
     event_id=None,
     throttle=None,
+    trigger_source=None,
 ):
     """Harvest GFZ IGSN physical samples by scraping landing-page coordinates."""
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
     ensure_collection_for_source(source)
-    event = start_harvesting_event(source, event_id)
+    # Resolve the effective max_records (Source.harvest_config's default,
+    # unless the caller passed an explicit override) before creating the
+    # event, so the *actual* cap used for this run is what gets recorded.
+    if max_records is None and isinstance(source.harvest_config, dict):
+        max_records = source.harvest_config.get("max_records")
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting GFZ IGSN scrape for {source.name}")
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
     logger.addHandler(warning_collector)
 
     try:
-        if max_records is None and isinstance(source.harvest_config, dict):
-            max_records = source.harvest_config.get("max_records")
         if throttle is None and isinstance(source.harvest_config, dict):
             throttle = source.harvest_config.get("throttle")
         stats = HarvestStats()
@@ -272,6 +290,7 @@ def harvest_gfz_igsn(
                 "records_seen": seen,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

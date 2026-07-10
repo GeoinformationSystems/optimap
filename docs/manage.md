@@ -9,7 +9,7 @@ For a fully working setup, two processes must be live in addition to the web app
 
 ### Stopping and restarting the cluster
 
-`Ctrl+C` triggers Django-Q's **graceful** shutdown, which waits for the worker's in-flight task to finish. A throttled long-runner — notably the OpenAIRE enrichment sweep, which `sleep`s between requests (see [OpenAIRE enrichment](#openaire-enrichment)) — can hold that up for a long time, so `Ctrl+C` appears to "hang".
+`Ctrl+C` (SIGINT) and `SIGTERM` both trigger Django-Q's own **graceful** shutdown (caught in `django_q/cluster.py`'s `sig_handler`): the sentinel stops accepting new tasks and waits for the worker's in-flight task to finish before exiting. Only `SIGKILL` (`kill -9`) skips this — the process can't catch it, so it dies immediately with whatever it was doing. A throttled long-runner — notably the OpenAIRE enrichment sweep, which `sleep`s between requests (see [OpenAIRE enrichment](#openaire-enrichment)), or a Mountain Wetlands harvest working through many per-record Nominatim lookups — can hold up the graceful wait for a long time (up to `Q_CLUSTER["timeout"]`, 6000s / 100 min by default), so a plain `Ctrl+C` can appear to "hang" rather than exit promptly.
 
 For a clean stop that doesn't wait, signal the cluster process group instead:
 
@@ -20,16 +20,34 @@ pkill -9    -f "manage.py qcluster"   # force-kill anything still lingering
 
 `SIGTERM` first is preferred; escalate to `-9` (SIGKILL) only for stragglers. Killing the whole `manage.py qcluster` match covers the cluster parent, its sentinel, and every worker in one go (killing just the parent PID orphans the sentinel/workers). Verify nothing survives with `pgrep -af "manage.py qcluster"`, then restart with `python manage.py qcluster`.
 
-**A force-killed worker leaves its in-flight task un-acked in the broker.** With the default `Q_CLUSTER` `retry` window and `max_attempts`, Django-Q re-queues that task when the cluster comes back up. That is usually fine (the OpenAIRE sweep, for one, is idempotent — it skips works it has already consulted and resumes at the tail). If you would rather the restarted cluster **not** replay a stuck or failing task, clear the queued/failed tasks before restarting:
+**Docker.** `docker compose stop|restart|down` sends `SIGTERM` to the container's PID 1 automatically, so the same graceful drain applies — no need to `pkill` manually inside the container. Docker's own default grace period before escalating to `SIGKILL` is only 10s, which is short relative to a single harvest step; both `docker-compose.yml` and `docker-compose.deploy.yml` set `stop_grace_period: 60s` on the `djangoq` service for a bit more headroom. This is a compromise, not a guarantee — it does not (and, practically, cannot) cover the full 6000s task timeout, so a `docker compose restart` during a long-running harvest will usually still escalate to `SIGKILL` on that one in-flight task. That is an acceptable trade-off here (see below), not a bug to chase.
 
-- **Django admin:** delete the rows under **Django Q → Queued tasks** (waiting) and **Django Q → Failed tasks** (already errored).
-- **`manage.py shell`:**
-  ```python
-  from django_q.models import OrmQ, Task
-  OrmQ.objects.all().delete()                       # drop everything still queued in the broker
-  Task.objects.filter(success=False).delete()       # drop recorded failures
-  ```
-  `OrmQ` is the broker's pending-task queue (the "Queued tasks" admin list); `Task` rows are completed results, so filtering on `success=False` targets the "Failed tasks" list. Narrow either query (e.g. by `name`/`func`) to drop only a specific stuck task rather than all of them.
+**Plain (non-Docker) deployment.** `etc/deploy-plain/optimap-worker.service` already applies the same idea via systemd: `TimeoutStopSec=60` gives the graceful drain the same 60s window as the Docker Compose `stop_grace_period` before escalating, and `KillMode=mixed` sends `SIGTERM` to the main process first but ensures every process in the control group (sentinel + workers, not just the parent) is cleaned up on timeout — the systemd equivalent of the `pkill -f "manage.py qcluster"` pattern above, without needing to run it by hand.
+
+**A force-killed worker leaves its in-flight task un-acked in the broker, and this is a safe (if wasteful) event, not a data-loss one.** With the default `Q_CLUSTER` `retry` window and `max_attempts`, Django-Q re-queues that task when the cluster comes back up. That is usually fine — the OpenAIRE sweep is idempotent (skips works it has already consulted, resumes at the tail), and for harvests specifically, `works.harvesting.common.start_harvesting_event()` reuses the same `HarvestingEvent` if it's still `pending`/`in_progress` when the retry lands, or refuses to start a second one if it already reached a terminal status in the meantime (see [Manage harvesting](#manage-harvesting) → the `event_id` note) — so a restart can never turn one interrupted harvest into a duplicate or a phantom "scheduled" one. It does lose whatever progress that one attempt had made past its last DB write, so a restart mid-harvest is safe but not free.
+
+If you would rather the restarted cluster **not** replay a stuck or failing task at all, clear it from the queue before restarting — target specific rows rather than wiping the whole queue, since `OrmQ` also holds legitimate pending work (recurring sweeps, backfills, enrichment follow-ups) that you don't want to lose:
+
+```python
+from django_q.models import OrmQ
+from works.models import HarvestingEvent
+
+# Example: drop only harvest_* tasks whose HarvestingEvent already left
+# "pending" (i.e. this isn't a fresh task — something already attempted it).
+harvest_funcs = {"works.tasks.harvest_oai_endpoint", "works.tasks.harvest_geoscienceworld", ...}
+to_delete = []
+for row in OrmQ.objects.all():
+    if row.func() in harvest_funcs:
+        event_id = (row.kwargs() or {}).get("event_id")
+        event = HarvestingEvent.objects.filter(id=event_id).first() if event_id else None
+        if event is None or event.status != "pending":
+            to_delete.append(row.id)
+OrmQ.objects.filter(id__in=to_delete).delete()
+```
+
+The Django admin's **Django Q → Queued tasks** / **Failed tasks** lists work too for a one-off manual look, but don't offer this kind of targeted filtering.
+
+**Workers.** `Q_CLUSTER["workers"]` (`OPTIMAP_Q_CLUSTER_WORKERS`, default **2**, same in dev and production) controls how many tasks run concurrently. More than one worker means a single slow or stuck task no longer blocks everything else in the queue (schedules, backfills, other harvests) behind it — the failure mode that originally motivated raising this from 1. The trade-off: each worker is a separate OS process with its own in-memory rate limiters (the `OpenAlexMatcher` singleton, the Nominatim client), which are **not** shared across processes — so raising this further multiplies the effective request rate against external APIs this project already tunes for a single caller (`OPTIMAP_OPENAIRE_ENRICH_THROTTLE`, Nominatim's 1 req/s courtesy budget, OpenAlex's search-query daily budget). Don't run *multiple `qcluster` processes* to get more throughput instead — Django-Q's own docs advise against it (no performance benefit, real risk of contention); use `workers` instead.
 
 ## Manage harvesting
 
@@ -221,6 +239,106 @@ CLI alternatives still work and are documented in README §[Harvest works from r
 
 **Bootstrap the admin from the source config:** `python manage.py harvest_sources --insert-sources` creates one `Source` row per (enabled) entry in `harvest_sources`'s `SOURCE_CONFIG` without harvesting. Each insert also gets-or-creates a `Collection` from the entry's `collection_name`. **New collections start unpublished** — review the name/description and flip the "Is published" toggle in `/admin/works/collection/` when a collection is ready to be public. After running it, every configured source appears at `/admin/works/source/` (linked to its collection) and can be triggered with the actions above. Re-running is idempotent (existing rows by name or URL are left alone) and never changes a collection's publish status, so a re-insert on every deployment won't re-expose collections you have unpublished. Add `--include-disabled` to insert sources whose upstream is currently broken (e.g. the Copernicus OAI-PMH 404). All inserts default to `harvest_interval_minutes = 0` (manual-only) so the cluster is not flooded after a bulk insert; `Source.save()` dispatches to the correct task per source type when you later raise the interval.
 
+### Manage harvesting via the `/manage/` UI (issues #133, #44)
+
+Staff (`is_staff`) users get a bespoke, portal-native management area at **`/manage/`** — linked from the burger menu ("Manage harvesting") once logged in as staff. It covers the same ground as the Django admin sections above, but in one place, without leaving the public site's look and feel. The Django admin remains the low-level fallback for anything not covered here (bulk edits, raw model browsing).
+
+| Page | Purpose |
+| --- | --- |
+| `/manage/` | Dashboard: work/source counts, currently-running harvests (live-polling), cluster/queue health, upcoming schedules, recent async-task failures. |
+| `/manage/sources/` | Paginated source list, filterable by type/name, with a one-click **Harvest now** button per row. |
+| `/manage/sources/new/` | Add a source. Paste a journal/repository URL into the **discover** field to probe for its OAI-PMH endpoint (`<head>` pointers → OJS/generic path patterns → the URL itself, each validated with a real `Identify` request) before creating the `Source` row — see "OAI-PMH discovery" below. |
+| `/manage/sources/<id>/` | Source detail: recent harvesting events, a paginated list of works harvested from this source, a "Harvest now" form (with an optional `max_records` cap), and a guarded delete (refuses while the source still has works). |
+| `/manage/sources/<id>/edit/` | Edit form (name, type, URL, harvest interval, OpenAlex id, ISSN-L, DOI prefix, homepage). |
+| `/manage/harvests/` | All `HarvestingEvent` rows, filterable by status / source / **trigger origin** (see below) — the same events the admin's `HarvestingEvent` changelist shows, including runs launched from a management command. |
+| `/manage/harvests/<id>/` | Event detail with a **live-updating log** (polls `?format=json&since=<chars-seen>` every 3s while the run is `pending`/`in_progress`, appends new log text, and stops once the event reaches a terminal status) plus paginated **"Newly harvested"** and **"Updated"** work lists (backed by the `HarvestRecord` join table — see below). A visible **"Next update in Ns"** countdown (with a pulsing dot) next to the Log header makes the polling itself obvious, instead of looking like a static page that needs a manual refresh. |
+
+**Live-log polling, not WebSockets.** The deployment is WSGI-only (gunicorn / `runserver`, no Channels/ASGI/Redis), so live updates use plain `fetch()` polling on the same resource URL (`?format=json`), not a push channel. This was evaluated against the alternatives `#133` asked to research:
+
+| Option | Verdict |
+| --- | --- |
+| **AJAX polling** (`fetch` + `?format=json`, ~2–5s interval) | **Chosen.** Zero new infrastructure on the existing WSGI/gunicorn deployment; fine for the handful of concurrent staff who use this page. |
+| SSE (`StreamingHttpResponse` / django-eventstream) | Rejected — a synchronous streaming response pins a gunicorn worker for the whole connection; effectively wants an ASGI server we don't run. |
+| Django **Channels** + daphne/uvicorn + Redis | Rejected — what issue #133 literally named as a research target, but adds an ASGI server, a channel layer, and deploy rework for what is, in practice, a low-concurrency internal log viewer. |
+| `django-q-monitor` / built-in `qmonitor`/`qinfo` (terminal) | Still useful for a quick terminal check; not a substitute for a web UI. |
+| Apache Airflow (suggested in the original #44 discussion) | Rejected — heavy to install/operate vs. the Django-Q setup already in place (the original comment flagged this trade-off itself). |
+
+**Every `/manage/` view is `@never_cache`.** The project runs the site-wide `UpdateCacheMiddleware`/`FetchFromCacheMiddleware` pair (`CACHE_MIDDLEWARE_SECONDS=3600` by default), so any view that doesn't explicitly opt out can be served stale for up to an hour — and separately, without explicit `Cache-Control` headers a browser is also free to cache a GET response on its own and reuse it on a plain refresh. Every `/manage/` view (including the `?format=json` polling endpoints) is decorated `@never_cache`, matching the existing pattern in `works/views/auth.py`/`works/views_collections.py` for other per-session dynamic pages — otherwise the dashboard's 5s poll and the harvest-detail live log could silently keep returning the same cached response.
+**`trigger_source`** (`HarvestingEvent.trigger_source`) records *what* started each harvest: `ui` (a `/manage/` button), `admin-action` (a Django admin action), `management-command` (`harvest_sources`, sync or `--async`), `schedule` (the recurring Django-Q schedule created by `Source.save()` — the default when nothing else sets it explicitly), `api` (the `/contribute/` add-by-DOI flow), or `manual`. Shown as a column/filter in both `/manage/harvests/` and the admin's `HarvestingEvent` changelist.
+
+**`HarvestRecord`** (`event` FK, `work` FK, `action` — `created`/`updated`) is written by the shared per-record save helper (`works.harvesting.common._save_or_update_work`) alongside the existing `HarvestStats` counters, giving an exact, cascade-deleted-with-its-event audit trail of which works a given run touched and how. `Work.harvest_records` gives the reverse per-work harvest history.
+
+**A harvest whose `event_id` already points to a terminal event refuses to run** — `start_harvesting_event()` returns `None` and every `harvest_*` entry point aborts immediately (no fetch, no new event, no failure email) when this happens. This guards against a specific failure mode: the `/manage/` UI trigger and `harvest_sources --async` both pre-create exactly one `pending` `HarvestingEvent` and enqueue exactly one Django-Q task against it. If that task times out or errors and Django-Q's own retry (`Q_CLUSTER["max_attempts"]`, independent of any application code) re-executes it *after* the event has already reached a terminal status, the old behavior silently created a **second** event — stamped with the model's `"schedule"` default (a retry never passes `trigger_source`), which is actively misleading since no recurring `Schedule` caused it. A single stuck task could turn into an unbounded stream of phantom "scheduled" harvests for a source that has no schedule at all (symptom: `harvest_interval_minutes = 0` / "manual only" sources showing up as running with `trigger_source=schedule`). See `works.harvesting.common.start_harvesting_event`.
+
+#### OAI-PMH discovery (two-step create)
+
+`works/harvesting/discovery.py::discover_oai_endpoint(url)` is a **read-only preview** step, not a harvester: it never creates a `Source`.
+
+1. Normalize the input — a bare domain/path with no `://` (e.g. `josis.org`) is prefixed with `https://`.
+2. Fetch that URL **following redirects**, and use the resolved (post-redirect) URL for every step below — a bare-domain homepage commonly 302s to its real journal path (e.g. an OJS install redirecting `josis.org` → `josis.org/index.php/josis`), and the platform-pattern guess in step 4 only matches against that resolved path.
+3. Scan the fetched page's `<head>` for `<link>`/`<meta>` pointers mentioning `oai`.
+4. Guess platform path conventions from the resolved URL (OJS `…/index.php/<journal>/oai`, generic `…/oai`, `…/oai/request`).
+5. Fall back to the resolved URL itself, then (if different) the original URL as typed.
+6. Validate every candidate with a real `?verb=Identify` request; only endpoints that return a parseable OAI-PMH `Identify` response are returned, each with its `repositoryName`, `earliestDatestamp`, `adminEmail`, and `protocolVersion`.
+
+Clicking **Use this** on a candidate prefills **Name**, **URL**, and **Source type** (step 2) as before, plus **Homepage URL** — derived client-side as the candidate's scheme + host only (e.g. `https://josis.org/index.php/josis/oai` → `https://josis.org`), a starting guess the admin can still edit.
+
+The admin picks a candidate on `/manage/sources/new/`, which prefills the create form (step 2) — nothing is written until that form is submitted.
+
+#### Duplicate-source detection
+
+`/manage/sources/new/` warns — but doesn't hard-block — when a source with a matching `url_field`, `issn_l`, or `openalex_id` already exists (`works.views_manage._find_duplicate_sources`). `doi_prefix` is deliberately excluded from the check: different sources can legitimately share one (e.g. ESSOAr and Authorea both harvest under `10.22541`, disambiguated at harvest time via `doi_contains`/ISSN — see `harvest_sources.py`).
+
+Two layers, same check:
+
+- **Live, client-side**: as the admin edits URL/ISSN-L/OpenAlex-ID, the form calls `?format=json&check_duplicate=1` (debounced) and shows an inline warning with links to the matching source(s). Submitting while the warning is showing pops a `confirm()` dialog; confirming sets a hidden `confirm_duplicate=1` field and resubmits.
+- **Server-side safety net**: `_create_source` re-runs the same check on `POST`. Without `confirm_duplicate=1` it doesn't create the source — it redirects back with a warning message listing the match(es) instead (this is the path taken for a non-JS client, or if the fields changed between the last live check and submit).
+
+#### Suggest OpenAlex ID / ISSN-L / DOI prefix
+
+Once the **Name** field has a value (typing it directly, or picking a discovered OAI-PMH candidate above), the "Suggest from OpenAlex" button next to **OpenAlex source ID** becomes clickable. It searches OpenAlex's Sources API by name (`works.harvesting.openalex_discovery.search_openalex_sources`, up to 5 candidates) and lists them (name, ISSN-L, works count) for the admin to pick from — or ignore, and type values in manually; nothing here is required or exclusive.
+
+Picking a candidate fills **OpenAlex source ID** and **ISSN-L** immediately (already in the search result), then triggers one more request to guess **DOI prefix**: OpenAlex has no source-level DOI-prefix field, so `guess_doi_prefix()` samples a handful of the source's own works and takes the most common `10.xxxx` prefix among their DOIs. All three fields stay plain, freely-editable text inputs after being filled — the suggestion is a starting point, not a lock.
+
+#### Incremental log lines
+
+Every harvester writes a "Starting … harvest" line via `HarvestingEvent.append_log()` as soon as it begins, plus periodic progress lines (per OAI-PMH year chunk, per N Crossref/DataCite/GFZ-IGSN records, per book ISBN, …) — so the live log is never blank while a harvest is `in_progress`, even a short one that finishes before the first page of results comes back. `complete_harvest()`/`fail_harvest()` **append** the final warning/error summary after this incremental trail rather than replacing it, so the full run history (not just the end-of-run summary) is still there once the harvest finishes.
+
+Beyond those per-page/per-batch summaries, every harvester also logs **per-work** lines via `HarvestingEvent.log_work()`: "Retrieved: \<title\>" once a record clears the harvester's own early-dedup check, "Enriched: \<title\> — OpenAlex matched/no match" right after `build_openalex_fields()` runs (skipped for harvesters that don't call it, e.g. the IGSN sample harvesters and GeoScienceWorld), and a final "Saved id=N: …" / "Updated id=N: …" / "Skipped (duplicate): …" / "Skipped (already under another source): …" / "Failed to save: … — \<error\>" line. All of these are emitted from one shared place each — `works.harvesting.common.log_work_retrieved()` / `log_work_enriched()` / `log_work_failed()` / `log_work_outcome()` (the last called inside `_save_or_update_work()`) / `log_work_skip()` (the harvester's own early-dedup check) — rather than each harvester hand-building its own line, so the wording (and the "No title" fallback for a missing title) stays consistent across all 8 harvesters. The Mountain Wetlands harvester's "Enriched" line is the one deliberate exception: it reports its own richer 4-state match status (`verified`/`candidate`/`none`/`skipped`) instead of the generic matched/no-match note, since it already computes that distinction for other reasons.
+
+`log_work()` batches its DB write every 5 calls (`HarvestingEvent._LOG_WORK_FLUSH_INTERVAL`) rather than one write per line — a full harvest can be tens of thousands of records, and a DB round-trip per work would multiply write volume accordingly; any lines buffered-but-unflushed when the harvest ends are still captured, since `complete_harvest()`/`fail_harvest()` persist whatever is in `log_text` regardless of the counter. `log_text` itself is capped at `HarvestingEvent._LOG_TEXT_MAX_CHARS` (50,000 characters, trimmed from the front with a "`[... earlier log lines truncated ...]`" marker) — without a cap, a large harvest logging one line per record would make `log_text` grow without bound, and since every `save()` of the row resends the *entire* field, total I/O across a run would scale quadratically with record count rather than linearly.
+
+#### Cancelling a queued harvest
+
+A harvest triggered from `/manage/` or `harvest_sources --async` is pre-created as `pending` before the matching Django-Q task is enqueued (see `_trigger_harvest` in `works/views_manage.py`). While it's still in that `pending` state, `/manage/harvests/<id>/` shows a **Cancel** button: `POST`ing removes the queued task (`works.qmonitor.find_queued_task_for_event` matches the `OrmQ` row by its `event_id` kwarg and deletes it) and marks the event `cancelled`.
+
+This only works for a **queued** harvest. Once a worker has picked up the task there is no supported way to stop it from the UI — Django-Q has no task-preemption API, and force-killing a worker mid-run risks a partial write or an orphaned HTTP connection. Genuine mid-run cancellation would need cooperative cancellation: a `cancel_requested` flag checked at each harvester's existing per-page/per-chunk checkpoint (the same points `append_log()` calls happen at), which is a larger change touching every harvester — not implemented.
+
+#### Detecting a stuck/orphaned harvest
+
+`HarvestingEvent.is_stale` flags an event that's been sitting `pending` or `in_progress` for longer than a reliable threshold — surfaced as a warning banner on `/manage/harvests/<id>/`, an icon on `/manage/harvests/`, and a field in both JSON polling payloads. The two statuses use **different** thresholds because they fail differently:
+
+- **`in_progress`**: uses `Q_CLUSTER["timeout"]` (6000s by default). A force-killed task never runs its `except`/`finally` handlers, so `fail_harvest()` is never called — past that timeout the event genuinely can no longer have a live worker behind it.
+- **`pending`**: uses the much shorter `HARVEST_PENDING_STALE_MINUTES` (`OPTIMAP_HARVEST_PENDING_STALE_MINUTES`, default **5 min**). A worker normally claims a queued task and calls `start_harvesting_event()` — the very first thing a harvester does — within moments of being enqueued. A still-`pending` event that stays that way for more than a few minutes almost always means a worker claimed the task (Django-Q's own `OrmQ.lock` bookkeeping will show a lease in the future) and then crashed or hung *before* it could even flip the status — reusing the full task timeout here would leave that scenario essentially undetectable for most of the window.
+
+This is **display-only** — nothing here auto-cancels or retries the event. If you find one this way, check whether more than one `qcluster` process is running (`ps aux | grep qcluster`); two clusters contending for the same `OrmQ` queue is a common cause, and the older one is often running stale code from before a settings/code change (Python doesn't hot-reload a running process — see [Stopping and restarting the cluster](#stopping-and-restarting-the-cluster)).
+
+**Root-cause fix for one confirmed trigger:** a per-record landing-page fetch (`works.harvesting.oai`'s geometry/temporal extraction, `works.harvesting.crossref`'s Copernicus abstract fetch) could hang far longer than its declared `requests` `timeout=` — that parameter only bounds the connect and the gap *between* reads, not the call as a whole, so a server trickling data slowly enough to keep resetting it (without ever fully stalling) could occupy a worker for up to the full `Q_CLUSTER["timeout"]`. `works.harvesting.sessions.fetch_with_deadline()` wraps these fetches with a real wall-clock ceiling (45s for OAI-PMH, 120s for Crossref) — the fetch runs in a background thread, and the harvester moves on to the next record if it doesn't return in time, exactly as if the fetch had failed outright.
+
+### Async task & cluster monitoring (issue #130)
+
+Beyond harvesting, OPTIMAP runs many other Django-Q background tasks — OpenAIRE/OpenAlex enrichment sweeps, data-dump regeneration, monthly/subscription email digests, country/region backfills, author-ORCID backfills, service-token renewal checks. `/manage/` surfaces all of them, not just harvests:
+
+- **`/manage/` (dashboard)** also shows live cluster/queue health: active `qcluster` heartbeats (host, pid, worker count, uptime), the ORM-broker queue depth, the next few upcoming `Schedule` rows, and the most recent task failures. The health widgets poll `?format=json` the same way the harvest log does. Each **Upcoming schedules** entry falls back to the schedule's dotted `func` path when it has no explicit `name` (most recurring sweeps created via `django_q.tasks.schedule()` never set one) — otherwise the list would show a bare, unhelpful "None" for those rows.
+- **`/manage/tasks/`** — a paginated browser over **every** Django-Q `Task` (the `Success`/`Failure` proxy models), filterable by outcome (`?status=success|failed`), function name, or group. Also shows a **Queued** section above the history table (`works.qmonitor.queued_tasks()`, reading `django_q.models.OrmQ`) — tasks that have been enqueued but not yet picked up by a worker have no `Task` row yet, so without this section a just-triggered task (e.g. the "Run backfill now" buttons on `/countries`/`/regions`) is invisible here until a worker actually starts it. This gap is most noticeable when every configured worker (`Q_CLUSTER["workers"]`) is already busy: a task can sit queued for the full duration of whatever's currently running. Each row shows "Waiting" or "Running" based on `OrmQ.lock` — enqueuing stamps it `now()`, and a worker claiming the row pushes it to `now() + Q_CLUSTER["retry"]` as a processing lease, so a lock in the future means a worker has it.
+- **`/manage/tasks/<id>/`** — task detail: function, args/kwargs, and the result (or full traceback, for a failure).
+
+This is read-only over Django-Q's own models (`works/qmonitor.py`) — no new broker, no change to how tasks are queued or executed. Cluster heartbeats (`Stat.get_all()`) are read from Django's cache framework (the `default` cache alias), which is a **separate mechanism** from the ORM-broker tables (`Task`/`OrmQ`/`Schedule`) that Q_CLUSTER uses for the queue itself — both are read here, but they're not the same storage.
+
+**Failure notifications.** A `post_execute` Django-Q signal receiver (`works/signals.py::notify_on_task_failure`) emails active staff whenever a task is recorded with `success=False` — i.e. it raised an *uncaught* exception. This is a generic catch-all and deliberately does not duplicate:
+- harvest tasks, which catch their own exceptions internally and send their own `harvest_failure.en.txt` email (Django-Q still sees `success=True` for them);
+- the OpenAIRE-enrichment and author-ORCID backfill sweeps, which already email staff via their own dedicated abort-notifier before re-raising after repeated systemic failures.
+
 ### Inspect harvesting events
 
 At `/admin/works/harvestingevent/`, each row is one harvest run. The changelist shows:
@@ -345,7 +463,7 @@ OPTIMAP enriches works from the [OpenAIRE Graph API](https://graph.openaire.eu/d
 
 **On every harvest (all sources).** When `OPTIMAP_OPENAIRE_ENRICH_ON_HARVEST=True` (default), each successful harvest enqueues an async Django-Q sweep (`works.harvesting.openaire.enrich_event_from_openaire`) that looks up **every** work in that event with a DOI — not only those missing a field. Works that are missing any enrichable field (abstract, keywords, authors, volume, issue, first_page, last_page, language, publisher) get filled; works that already have everything still get an `openaire_match` record (and, on a match, an `openaire_enrich` event noting the offered-but-not-applied fields), so the OpenAIRE consultation is always auditable. The sweep runs **off** the harvest critical path and throttles between requests. The Django-Q cluster must be running for it to execute. Set `OPTIMAP_OPENAIRE_ENRICH_ON_HARVEST=False` to disable it fleet-wide. (The `enrich_openaire` backfill command below deliberately keeps its missing-field filter — this full audit trail is built going forward, not retroactively.)
 
-> **Bounded chunks (interruptible) & the Django-Q timeout.** Because the sweep and the `enrich_openaire --async` backfill throttle between requests, a full run over many DOIs would take far longer than the global `Q_CLUSTER['timeout']` (600s). Rather than running as one long task (which ignored the cluster stop signal — you couldn't stop it from the console without killing the whole `qcluster`), each task now processes works only until a wall-clock budget `OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS` (default **480s**, below the cluster timeout) elapses, then **re-enqueues a continuation** with an `id`-cursor. Each chunk is therefore short, so the cluster's stop signal is honoured between chunks and no task outlives the cluster timeout. The per-task timeout override `OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT` now defaults to **0** (use the cluster default); set a non-zero value only if you deliberately want long single-task runs.
+> **Bounded chunks (interruptible) & the Django-Q timeout.** Because the sweep and the `enrich_openaire --async` backfill throttle between requests, a full run over many DOIs would take far longer than the global `Q_CLUSTER['timeout']` (6000s). Rather than running as one long task (which ignored the cluster stop signal — you couldn't stop it from the console without killing the whole `qcluster`), each task now processes works only until a wall-clock budget `OPTIMAP_OPENAIRE_ENRICH_CHUNK_SECONDS` (default **480s**, below the cluster timeout) elapses, then **re-enqueues a continuation** with an `id`-cursor. Each chunk is therefore short, so the cluster's stop signal is honoured between chunks and no task outlives the cluster timeout. The per-task timeout override `OPTIMAP_OPENAIRE_ENRICH_TASK_TIMEOUT` now defaults to **0** (use the cluster default); set a non-zero value only if you deliberately want long single-task runs.
 >
 > **Circuit breaker (fail fast + email).** `fetch_openaire_record` distinguishes a *systemic* failure — HTTP 401/403/408/429, any 5xx, or a connection/timeout — from a genuine "this DOI is not in OpenAIRE". After `OPTIMAP_OPENAIRE_ENRICH_ABORT_AFTER` (default **5**) *consecutive* systemic failures, the sweep/backfill **emails active staff** (`openaire_enrich_aborted.en.txt`) and **fails the Django-Q task**, instead of grinding through thousands of doomed requests and spamming identical warnings. A repeated `403 Forbidden` almost always means the OpenAIRE access token/refresh token needs renewing (see [Renewing the OpenAIRE refresh token](#renewing-the-openaire-refresh-token)) or OPTIMAP is being rate-limited/blocked. Live per-work enrichment (Crossref harvest, contribute-by-DOI, re-harvest) stays tolerant — a single systemic blip there is logged and skipped, never raised.
 
@@ -384,7 +502,7 @@ The `ServiceToken` table and the reminder machinery are **generic over a list of
 
 ### Email notifications on completion / failure
 
-`harvest_oai_endpoint` sends a result email to the user that triggered the run (the user who clicked the action; falls back to silently skipping if there is no user). Subject lines are `✅ Harvesting Completed for <collection>` or `❌ Harvesting Failed for <collection>`. To debug locally, point Django at the console backend in `.env`:
+`harvest_oai_endpoint` (and every other harvester) sends a result email to the user that triggered the run (the user who clicked the action; falls back to silently skipping if there is no user). Subject lines are `✅ Harvesting Completed for <collection>` or `❌ Harvesting Failed for <collection>`. The success email includes a **"View this harvest:"** link to that run's `/manage/harvests/<id>/` page (`works.harvesting.common.harvest_event_url`, injected via `render_harvest_email(..., event=event)`). To debug locally, point Django at the console backend in `.env`:
 
 ```env
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
@@ -947,6 +1065,8 @@ ORCIDs are captured automatically when works are enriched:
 - **OpenAIRE** — the `enrich_openaire` sweep parses the `pid` list on each author record for ORCIDs (scheme `"orcid"`).
 
 Both paths use **fill-if-empty**: if a work already has `Work.author_links`, a second enrichment source does not overwrite them (pass `force=True` on the backfill command to rebuild).
+
+**Note (fixed):** for a while, the inline OpenAlex path above only actually worked for the OpenAlex-as-source harvester (which builds `author_records` itself from the raw payload) — `works.harvesting.openalex.build_openalex_fields()`, the shared enrichment helper used by OAI-PMH/RSS/Crossref/Mountain-Wetlands, computed the OpenAlex matcher's `author_records` internally but never copied it into its returned fields dict, so `link_openalex_authors()` (called right after every save) always received an empty list. Regular harvesting silently linked zero ORCIDs for those four harvesters; only the manual `backfill_author_orcids` command (which re-fetches `authorships` from the OpenAlex API directly, bypassing `build_openalex_fields`) actually worked. Fixed by propagating `author_records` through `build_openalex_fields`. A weekly self-healing sweep (`works.tasks.backfill_author_orcids_task`, scheduled via `schedule_backfill_author_orcids()`, mirroring the country/region backfill sweeps) now also runs automatically to catch works harvested before this fix and anything the inline path missed — `chunked=True` since, unlike the country/region point-in-polygon joins, this makes real HTTP calls per work.
 
 ### Backfill existing works
 

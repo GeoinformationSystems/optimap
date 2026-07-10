@@ -1,0 +1,74 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+
+{% block title %}Task {{ task_id }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-11 col-lg-10">
+      {% include "manage/_nav_tabs.html" with active="tasks" %}
+
+      {% if queued %}
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <h1>{{ queued.func }}</h1>
+        {% if queued.picked_up %}<span class="badge badge-info p-2">Running</span>{% else %}<span class="badge badge-secondary p-2">Waiting</span>{% endif %}
+      </div>
+
+      <table class="table table-sm">
+        <tr><th style="width: 200px">Task id</th><td><code>{{ queued.task_id }}</code></td></tr>
+        <tr><th>Name</th><td>{{ queued.name|default:"—" }}</td></tr>
+        <tr><th>Group</th><td>{{ queued.group|default:"—" }}</td></tr>
+      </table>
+
+      <div class="card mb-3">
+        <div class="card-header"><strong>Arguments</strong></div>
+        <div class="card-body">
+          <pre class="mb-0">args: {{ queued.args }}
+kwargs: {{ queued.kwargs }}</pre>
+        </div>
+      </div>
+
+      <div class="alert alert-info mb-0">
+        {% if queued.picked_up %}
+        This task is currently running (processing lease until {{ queued.locked_until|date:"Y-m-d\TH:i" }}) — no result yet. Refresh once it finishes to see its outcome.
+        {% else %}
+        This task is still waiting for a free worker — no result yet. Refresh once it starts and finishes to see its outcome.
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <h1>{{ task.func }}</h1>
+        {% if task.success %}<span class="badge badge-success p-2">Success</span>{% else %}<span class="badge badge-danger p-2">Failed</span>{% endif %}
+      </div>
+
+      <table class="table table-sm">
+        <tr><th style="width: 200px">Task id</th><td><code>{{ task.id }}</code></td></tr>
+        <tr><th>Name</th><td>{{ task.name }}</td></tr>
+        <tr><th>Group</th><td>{{ task.group|default:"—" }}</td></tr>
+        <tr><th>Started</th><td>{{ task.started|date:"Y-m-d\TH:i" }}</td></tr>
+        <tr><th>Stopped</th><td>{{ task.stopped|date:"Y-m-d\TH:i" }}</td></tr>
+        <tr><th>Attempts</th><td>{{ task.attempt_count }}</td></tr>
+      </table>
+
+      <div class="card mb-3">
+        <div class="card-header"><strong>Arguments</strong></div>
+        <div class="card-body">
+          <pre class="mb-0">args: {{ task.args }}
+kwargs: {{ task.kwargs }}</pre>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><strong>{% if task.success %}Result{% else %}Traceback{% endif %}</strong></div>
+        <div class="card-body">
+          <pre style="white-space: pre-wrap; max-height: 500px; overflow: auto; margin: 0;">{{ task.result }}</pre>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock content %}

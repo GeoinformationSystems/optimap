@@ -18,6 +18,11 @@ from .common import (
     complete_harvest,
     fail_harvest,
     get_or_create_admin_command_user,
+    log_work_enriched,
+    log_work_failed,
+    log_work_outcome,
+    log_work_retrieved,
+    log_work_skip,
     parse_publication_date,
     resolve_user,
     send_harvest_email,
@@ -46,7 +51,7 @@ from .openaire import (
     fetch_openaire_record,
     get_openaire_access_token,
 )
-from .openalex import build_openalex_fields
+from .openalex import build_openalex_fields, openalex_enrichment_note
 from .rss import (
     harvest_rss_endpoint,
     parse_rss_feed_and_save_publications,
@@ -60,6 +65,11 @@ __all__ = [
     "complete_harvest",
     "fail_harvest",
     "get_or_create_admin_command_user",
+    "log_work_enriched",
+    "log_work_failed",
+    "log_work_outcome",
+    "log_work_retrieved",
+    "log_work_skip",
     "parse_publication_date",
     "resolve_user",
     "send_harvest_email",
@@ -68,6 +78,7 @@ __all__ = [
     "extract_timeperiod_from_html",
     # openalex
     "build_openalex_fields",
+    "openalex_enrichment_note",
     # openaire
     "build_openaire_fields",
     "enrich_event_from_openaire",

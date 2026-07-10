@@ -1,0 +1,87 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+
+{% block title %}Async tasks | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-11 col-lg-10">
+      {% include "manage/_nav_tabs.html" with active="tasks" %}
+
+      <h1 class="mb-4">Async tasks</h1>
+      <p class="text-muted">All Django-Q background tasks (harvest sweeps, OpenAIRE/OpenAlex enrichment, data-dump regeneration, email digests, backfills, …) — not just harvesting.</p>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          Queue ({{ queued_tasks|length }})
+          <span class="small text-muted" data-toggle="tooltip" title="Tasks that have been enqueued but have no result yet: still Waiting for a free worker, or already Running (claimed by a worker).">
+            <i class="fas fa-info-circle"></i>
+          </span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Function</th><th>Group</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for t in queued_tasks %}
+              <tr>
+                <td>{% if t.linkable %}<a href="{% url 'optimap:manage-task-detail' t.task_id %}">{{ t.func }}</a>{% else %}{{ t.func }}{% endif %}</td>
+                <td class="small text-muted">{{ t.group|default:"—" }}</td>
+                <td>
+                  {% if t.picked_up %}
+                  <span class="badge badge-info" data-toggle="tooltip" title="Claimed by a worker; lease until {{ t.locked_until|date:'Y-m-d\TH:i' }}">Running</span>
+                  {% else %}
+                  <span class="badge badge-secondary">Waiting</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="3" class="text-muted text-center p-3">Nothing queued.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h2 class="h5">Task history</h2>
+      <p class="text-muted small">Completed tasks — a record of every Success/Failure result Django-Q has produced so far.</p>
+
+      <form method="get" class="form-inline mb-3">
+        <label for="status" class="sr-only">Status</label>
+        <select id="status" name="status" class="form-control mr-2">
+          <option value="">All</option>
+          <option value="success" {% if selected_status == "success" %}selected{% endif %}>Success</option>
+          <option value="failed" {% if selected_status == "failed" %}selected{% endif %}>Failed</option>
+        </select>
+        <label for="func" class="sr-only">Function</label>
+        <input type="text" id="func" name="func" class="form-control mr-2" placeholder="function contains…" value="{{ selected_func }}">
+        <label for="group" class="sr-only">Group</label>
+        <input type="text" id="group" name="group" class="form-control mr-2" placeholder="group contains…" value="{{ selected_group }}">
+        <button type="submit" class="btn btn-outline-secondary">Filter</button>
+      </form>
+
+      <div class="table-responsive">
+        <table class="table table-striped">
+          <thead><tr><th>Function</th><th>Group</th><th>Success</th><th>Stopped</th></tr></thead>
+          <tbody>
+            {% for task in page_obj %}
+            <tr>
+              <td><a href="{% url 'optimap:manage-task-detail' task.id %}">{{ task.func }}</a></td>
+              <td class="small text-muted">{{ task.group|default:"—" }}</td>
+              <td>{% if task.success %}<span class="badge badge-success">Success</span>{% else %}<span class="badge badge-danger">Failed</span>{% endif %}</td>
+              <td class="small text-muted">{{ task.stopped|date:"Y-m-d\TH:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-muted text-center p-4">No tasks recorded yet — is qcluster running?</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% include "_pagination_nav.html" with pagination_label="tasks pagination" %}
+    </div>
+  </div>
+</div>
+{% endblock content %}

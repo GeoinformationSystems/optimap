@@ -21,6 +21,10 @@ from .common import (
     complete_harvest,
     fail_harvest,
     get_or_create_admin_command_user,
+    log_work_enriched,
+    log_work_failed,
+    log_work_retrieved,
+    log_work_skip,
     parse_publication_date,
     render_harvest_email,
     resolve_user,
@@ -131,7 +135,10 @@ def parse_rss_feed_and_save_publications(
                     if _cross_source or not update_existing:
                         action = "skipped_cross_source" if _cross_source else "skipped_same_source"
                         stats.record(action)
+                        log_work_skip(event, title, _cross_source)
                         continue
+
+                log_work_retrieved(event, title)
 
                 author = None
                 authors_list = []
@@ -168,6 +175,7 @@ def parse_rss_feed_and_save_publications(
                 openalex_fields, metadata_provenance = build_openalex_fields(
                     title=title, doi=doi, author=author, existing_metadata=existing_metadata
                 )
+                log_work_enriched(event, title, openalex_fields)
 
                 admin_user = get_or_create_admin_command_user()
 
@@ -217,6 +225,7 @@ def parse_rss_feed_and_save_publications(
 
             except Exception as e:
                 logger.error("Failed to process entry '%s': %s", entry.get("title", "Unknown")[:50], str(e))
+                log_work_failed(event, entry.get("title", "Unknown"), e)
                 continue
 
         logger.info(
@@ -234,11 +243,15 @@ def parse_rss_feed_and_save_publications(
         return 0, 0
 
 
-def harvest_rss_endpoint(source_id, user=None, max_records=None, update_existing=False, event_id=None):
+def harvest_rss_endpoint(
+    source_id, user=None, max_records=None, update_existing=False, event_id=None, trigger_source=None
+):
     """Harvest publications from an RSS/Atom feed."""
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
@@ -247,6 +260,7 @@ def harvest_rss_endpoint(source_id, user=None, max_records=None, update_existing
     try:
         feed_url = source.url_field
         logger.info("Fetching from RSS feed: %s", feed_url)
+        event.append_log(f"Fetching RSS/Atom feed: {feed_url}")
 
         stats = HarvestStats()
         parse_rss_feed_and_save_publications(
@@ -257,6 +271,7 @@ def harvest_rss_endpoint(source_id, user=None, max_records=None, update_existing
             update_existing=update_existing,
             stats=stats,
         )
+        event.append_log(f"Parsed feed: {stats.created} created, {stats.updated} updated, {stats.skipped} skipped.")
 
         spatial_count, temporal_count = complete_harvest(event, stats, warning_collector)
         new_count = stats.created
@@ -289,6 +304,7 @@ def harvest_rss_endpoint(source_id, user=None, max_records=None, update_existing
                 "records_seen": None,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

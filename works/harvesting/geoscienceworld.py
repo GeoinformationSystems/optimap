@@ -34,6 +34,8 @@ from .common import (
     ensure_collection_for_source,
     fail_harvest,
     get_or_create_admin_command_user,
+    log_work_failed,
+    log_work_retrieved,
     render_harvest_email,
     resolve_user,
     send_harvest_email,
@@ -138,6 +140,8 @@ def parse_gsw_response_and_save_works(
             if seen % log_interval == 0:
                 suffix = f"/{max_records}" if max_records else ""
                 logger.info("Processed %d%s records", seen, suffix)
+                if event is not None:
+                    event.append_log(f"Processed {seen}{suffix} records")
             doi = item.get("DOI")
             if not doi:
                 continue
@@ -145,6 +149,7 @@ def parse_gsw_response_and_save_works(
             url = item.get("URL") or f"https://doi.org/{doi}"
             title_list = item.get("title") or []
             title = title_list[0] if title_list else doi
+            log_work_retrieved(event, title)
 
             published = (
                 item.get("published-print")
@@ -175,6 +180,8 @@ def parse_gsw_response_and_save_works(
             if not update_existing and _find_existing_work(doi=doi, url=url):
                 logger.debug("GSW: DOI %s already harvested, skipping", doi)
                 stats.record("skipped_existing")
+                if event is not None:
+                    event.log_work(f"Skipped (duplicate): {title[:80]}")
                 if max_records and seen >= max_records:
                     return saved, seen
                 continue
@@ -255,6 +262,7 @@ def parse_gsw_response_and_save_works(
                     saved += 1
             except Exception as save_err:
                 logger.warning("Failed to save GSW work DOI=%s: %s", doi, save_err)
+                log_work_failed(event, title, save_err)
 
             if max_records and seen >= max_records:
                 return saved, seen
@@ -267,7 +275,9 @@ def parse_gsw_response_and_save_works(
     return saved, seen
 
 
-def harvest_geoscienceworld(source_id, user=None, max_records=None, update_existing=False, event_id=None):
+def harvest_geoscienceworld(
+    source_id, user=None, max_records=None, update_existing=False, event_id=None, trigger_source=None
+):
     """Harvest publications from GeoScienceWorld (issue #251).
 
     Enumerates articles via Crossref (source.doi_prefix) then extracts
@@ -276,7 +286,10 @@ def harvest_geoscienceworld(source_id, user=None, max_records=None, update_exist
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
     ensure_collection_for_source(source)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting GeoScienceWorld harvest for {source.name} (prefix={source.doi_prefix})")
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
@@ -340,6 +353,7 @@ def harvest_geoscienceworld(source_id, user=None, max_records=None, update_exist
                 "records_seen": seen,
                 "records_processed": seen,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

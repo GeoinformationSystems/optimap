@@ -38,6 +38,8 @@ from .common import (
     ensure_collection_for_source,
     fail_harvest,
     get_or_create_admin_command_user,
+    log_work_failed,
+    log_work_retrieved,
     render_harvest_email,
     resolve_user,
     send_harvest_email,
@@ -173,6 +175,7 @@ def _openalex_item_to_work_kwargs(item, source, event):
     landing_url = _landing_page_for(item) or (f"https://doi.org/{doi}" if doi else None)
     if not doi and not landing_url:
         return None
+    log_work_retrieved(event, title)
 
     pub_date = _parse_publication_date(item.get("publication_date"))
     abstract = _reconstruct_abstract(item.get("abstract_inverted_index"))
@@ -301,6 +304,8 @@ def parse_openalex_response_and_save_works(
             if seen % log_interval == 0:
                 suffix = f"/{max_records}" if max_records else ""
                 logger.info("Processed %d%s records", seen, suffix)
+                if event is not None:
+                    event.append_log(f"Processed {seen}{suffix} records")
             kwargs = _openalex_item_to_work_kwargs(item, source, event)
             if not kwargs:
                 continue
@@ -325,6 +330,8 @@ def parse_openalex_response_and_save_works(
                     kwargs.get("doi") or kwargs.get("url"),
                     e,
                 )
+                ident = kwargs.get("title") or kwargs.get("doi") or kwargs.get("url")
+                log_work_failed(event, ident, e)
             if max_records and seen >= max_records:
                 return saved, seen
 
@@ -343,6 +350,7 @@ def harvest_openalex_source(
     sort=None,
     update_existing=False,
     event_id=None,
+    trigger_source=None,
 ):
     """Harvest publications from a configured OpenAlex source.
 
@@ -356,7 +364,10 @@ def harvest_openalex_source(
     # run if the source has none, mirroring the OAI-PMH path. Idempotent — re-runs
     # are no-ops once the source has a collection assigned.
     ensure_collection_for_source(source)
-    event = start_harvesting_event(source, event_id)
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting OpenAlex harvest for {source.name}")
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
@@ -420,6 +431,7 @@ def harvest_openalex_source(
                 "records_seen": seen,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

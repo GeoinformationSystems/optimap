@@ -788,6 +788,7 @@ def schedule_service_token_renewal_check():
 # -----------------------------------------------------------------------------
 
 
+@log_scheduled_catchup
 def backfill_work_countries(trigger_source="scheduled", limit=None, dry_run=False):
     """Link ``Work.countries`` for works that have geometry but no countries yet.
 
@@ -905,6 +906,7 @@ def schedule_backfill_work_countries():
         logger.info("Scheduled backfill_work_countries weekly.")
 
 
+@log_scheduled_catchup
 def backfill_work_regions(trigger_source="scheduled", limit=None, dry_run=False):
     """Link ``Work.regions`` for works that have geometry but no regions yet.
 
@@ -1058,6 +1060,12 @@ def enrich_openaire_backfill(
     carry=None,
 ):
     """Backfill missing abstract/keywords/authors on existing works from OpenAIRE.
+
+    Note: this function's dotted path is listed in
+    ``works.signals._SELF_NOTIFYING_TASK_FUNCS`` — it already emails staff via
+    ``notify_openaire_abort`` before re-raising on abort, so the generic
+    ``post_execute`` failure notifier skips it. Keep that list in sync if this
+    function is ever renamed.
 
     Shared core for the ``enrich_openaire`` management command: runs synchronously
     when called directly (command's sync path, ``chunked=False`` — interruptible
@@ -1312,6 +1320,7 @@ def notify_backfill_abort(context, breaker, *, processed, total, trigger_source=
             )
 
 
+@log_scheduled_catchup
 def backfill_author_orcids_task(
     source="both",
     limit=None,
@@ -1324,6 +1333,12 @@ def backfill_author_orcids_task(
     carry=None,
 ):
     """Backfill ``Work.author_links`` with author ORCIDs from OpenAlex and/or OpenAIRE.
+
+    Note: this function's dotted path is listed in
+    ``works.signals._SELF_NOTIFYING_TASK_FUNCS`` — it already emails staff via
+    ``notify_backfill_abort`` before re-raising on abort, so the generic
+    ``post_execute`` failure notifier skips it. Keep that list in sync if this
+    function is ever renamed.
 
     Shared core for the ``backfill_author_orcids`` management command: runs
     synchronously when called directly (command's sync path, ``chunked=False`` —
@@ -1547,6 +1562,33 @@ def backfill_author_orcids_task(
         f"Done. processed={processed} linked={linked} supplemented={supplemented} skipped={skipped} errors={errors}"
     )
     return summary
+
+
+def schedule_backfill_author_orcids():
+    """Weekly self-healing sweep for ``Work.author_links`` (mirrors
+    ``schedule_backfill_work_countries``/``schedule_backfill_work_regions``).
+
+    The per-harvest inline enrichment (``build_openalex_fields`` →
+    ``link_openalex_authors``) links ORCIDs going forward, but this catches
+    everything that inline path can't: works harvested before that wiring
+    existed, works whose OpenAlex match arrived later (re-enrichment), and
+    any transient linking failure. ``chunked=True`` since — unlike the
+    countries/regions joins, which are a cheap offline point-in-polygon
+    lookup — this makes real HTTP calls to OpenAlex/OpenAIRE per work, so it
+    needs the same wall-clock-budgeted chunk/re-enqueue machinery as the
+    ``--async`` manual backfill.
+    """
+    if not Schedule.objects.filter(func="works.tasks.backfill_author_orcids_task").exists():
+        schedule(
+            "works.tasks.backfill_author_orcids_task",
+            chunked=True,
+            schedule_type="W",
+            repeats=-1,
+            # Offset from the country (Mon 04:00) and region (Mon 05:00) sweeps.
+            next_run=_next_monday().replace(hour=6),
+            intended_date_kwarg="scheduled_for",
+        )
+        logger.info("Scheduled backfill_author_orcids_task weekly.")
 
 
 # -----------------------------------------------------------------------------

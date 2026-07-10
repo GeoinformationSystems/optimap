@@ -45,12 +45,26 @@ class StartHarvestingEventTest(TestCase):
         self.assertNotEqual(event.id, foreign.id)
         self.assertEqual(event.source, self.source)
 
-    def test_creates_new_event_when_pre_created_already_completed(self):
-        # Defensive: never resurrect a finished event.
+    def test_refuses_to_start_when_pre_created_already_completed(self):
+        # Regression: this used to silently create a *second* event (mislabeled
+        # with the model's "schedule" trigger_source default, since a retry
+        # never passes one) — which is exactly what happens when Django-Q
+        # retries an already-concluded task after its event has gone terminal.
+        # Never resurrect a finished event under a fresh, misleading identity;
+        # refuse instead so the caller aborts cleanly.
         done = HarvestingEvent.objects.create(source=self.source, status="completed")
         event = start_harvesting_event(self.source, done.id)
-        self.assertNotEqual(event.id, done.id)
-        self.assertEqual(event.status, "in_progress")
+        self.assertIsNone(event)
+
+    def test_refuses_to_start_when_pre_created_already_failed(self):
+        done = HarvestingEvent.objects.create(source=self.source, status="failed")
+        event = start_harvesting_event(self.source, done.id)
+        self.assertIsNone(event)
+
+    def test_refuses_to_start_when_pre_created_already_cancelled(self):
+        done = HarvestingEvent.objects.create(source=self.source, status="cancelled")
+        event = start_harvesting_event(self.source, done.id)
+        self.assertIsNone(event)
 
     def test_creates_new_event_when_event_id_missing(self):
         event = start_harvesting_event(self.source, 999999)

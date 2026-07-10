@@ -33,6 +33,8 @@ from .common import (
     complete_harvest,
     ensure_collection_for_source,
     fail_harvest,
+    log_work_failed,
+    log_work_retrieved,
     render_harvest_email,
     resolve_user,
     send_harvest_email,
@@ -351,6 +353,7 @@ def _datacite_item_to_work_kwargs(item, source, event):
 
     titles = attrs.get("titles") or []
     title = (titles[0].get("title") if titles and isinstance(titles[0], dict) else None) or doi
+    log_work_retrieved(event, title)
     landing_url = attrs.get("url") or f"https://doi.org/{doi}"
     authors = [c.get("name") for c in (attrs.get("creators") or []) if isinstance(c, dict) and c.get("name")]
     starts, ends = _temporal_from_dates(attrs.get("dates"))
@@ -476,14 +479,20 @@ def parse_datacite_response_and_save_works(
     for item in iter_datacite_records(query, sort=sort, max_records=max_records):
         seen += 1
         if seen % _PROGRESS_EVERY == 0:
+            suffix = f"/{max_records}" if max_records else ""
             logger.info(
                 "DataCite: processed %d%s records (created=%d, updated=%d, skipped=%d)",
                 seen,
-                f"/{max_records}" if max_records else "",
+                suffix,
                 stats.created,
                 stats.updated,
                 stats.skipped,
             )
+            if event is not None:
+                event.append_log(
+                    f"Processed {seen}{suffix} records ({stats.created} created, "
+                    f"{stats.updated} updated, {stats.skipped} skipped)"
+                )
         kwargs = _datacite_item_to_work_kwargs(item, source, event)
         if not kwargs:
             stats.record("skipped_no_geometry")  # no coordinates → not ingested
@@ -500,6 +509,8 @@ def parse_datacite_response_and_save_works(
                 saved += 1
         except Exception as e:
             logger.warning("Failed to persist DataCite sample %s: %s", kwargs.get("doi"), e)
+            if event is not None:
+                log_work_failed(event, kwargs.get("title") or kwargs.get("doi"), e)
 
     logger.info(
         "DataCite harvest finished: %d seen, %d created, %d updated, %d skipped (%d no-geometry, %d duplicate)",
@@ -530,6 +541,7 @@ def harvest_datacite(
     max_records=None,
     update_existing=False,
     event_id=None,
+    trigger_source=None,
     **overrides,
 ):
     """Harvest IGSN physical samples from DataCite for a configured Source.
@@ -541,16 +553,22 @@ def harvest_datacite(
     user = resolve_user(user)
     source = Source.objects.get(id=source_id)
     ensure_collection_for_source(source)
-    event = start_harvesting_event(source, event_id)
+    # Resolve the effective max_records (Source.harvest_config's default,
+    # unless the caller passed an explicit override) before creating the
+    # event, so the *actual* cap used for this run is what gets recorded.
+    config = _effective_config(source, overrides)
+    if max_records is None:
+        max_records = config.get("max_records")
+    event = start_harvesting_event(source, event_id, trigger_source, max_records)
+    if event is None:
+        return
+    event.append_log(f"Starting DataCite (IGSN) harvest for {source.name}")
 
     warning_collector = HarvestWarningCollector()
     warning_collector.setLevel(logging.INFO)
     logger.addHandler(warning_collector)
 
     try:
-        config = _effective_config(source, overrides)
-        if max_records is None:
-            max_records = config.get("max_records")
         stats = HarvestStats()
         saved, seen = parse_datacite_response_and_save_works(
             source,
@@ -588,6 +606,7 @@ def harvest_datacite(
                 "records_seen": seen,
                 "records_processed": None,
             },
+            event=event,
         )
         send_harvest_email(user, subject, body)
 

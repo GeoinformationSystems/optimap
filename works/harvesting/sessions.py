@@ -5,7 +5,9 @@
 
 import hashlib
 import logging
+import queue
 import re
+import threading
 from urllib.parse import urlparse
 
 import requests
@@ -14,6 +16,45 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_with_deadline(fetch_fn, deadline):
+    """Call ``fetch_fn()`` (no args) and give up waiting after ``deadline``
+    seconds, raising ``TimeoutError``.
+
+    ``requests``' own ``timeout=`` only bounds the connect and the gap
+    *between* individual socket reads — a server that trickles a large HTML
+    response slowly enough to keep resetting that per-read timer, without
+    ever fully stalling, can make a single call run far longer than intended
+    while technically "making progress" the whole time. That already produced
+    one confirmed multi-hour hang (a landing-page fetch during an OAI-PMH
+    harvest, only killed by Django-Q's own 6000s task-level ceiling).
+
+    Runs ``fetch_fn`` in a background thread and stops waiting after
+    ``deadline`` seconds. There is no way to forcibly cancel an in-flight
+    ``requests`` call, so a timed-out call is simply abandoned — the
+    background thread (``daemon=True``, so it can't block process exit) keeps
+    running until the underlying socket read eventually resolves or errors on
+    its own; only *this* function's wait is bounded.
+    """
+    result: queue.Queue = queue.Queue(maxsize=1)
+
+    def _run():
+        try:
+            result.put(("ok", fetch_fn()))
+        except Exception as exc:  # noqa: BLE001 — re-raised in the caller's thread below
+            result.put(("error", exc))
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(deadline)
+    if thread.is_alive():
+        raise TimeoutError(f"exceeded {deadline}s wall-clock deadline")
+    kind, value = result.get_nowait()
+    if kind == "error":
+        raise value
+    return value
+
 
 # OAI-PMH ---------------------------------------------------------------------
 

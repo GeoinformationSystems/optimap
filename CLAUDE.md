@@ -37,7 +37,8 @@ Apply these steps to every task. Most are conditional — check whether the cond
   - **Models** ([models.py](works/models.py)):
     - `Work` - Core model with spatial (`GeometryCollectionField`) and temporal metadata
     - `Source` - OAI-PMH and RSS/Atom harvesting sources with metadata
-    - `HarvestingEvent` - Tracks harvesting jobs
+    - `HarvestingEvent` - Tracks harvesting jobs; `trigger_source` records what started the run (`ui` / `admin-action` / `management-command` / `schedule` / `api` / `manual`)
+    - `HarvestRecord` - Per-work outcome (`created`/`updated`) of one `HarvestingEvent`, for the `/manage/harvests/<id>/` newly-harvested/updated lists
     - `Subscription` - User subscriptions with regional filters (continents/oceans), sources, and collections
     - `GlobalRegion` - Predefined geographic regions (continents and oceans) for feeds and subscriptions
     - `CustomUser` - Extended Django user model
@@ -47,8 +48,9 @@ Apply these steps to every task. Most are conditional — check whether the cond
     - `BlockedEmail`/`BlockedDomain` - Anti-spam mechanisms
     - `ServiceToken` - Generic per-service API credential store (refresh token + cached access token), editable in the Django admin. Currently used for the OpenAIRE refresh-token flow; registry of services in `works/utils/service_tokens.py`
   - **Views** ([views.py](works/views.py)) - Handles passwordless login, subscriptions, data downloads
-  - **Harvesting** ([harvesting/](works/harvesting/)) — one module per source type (`oai.py`, `rss.py`, `crossref.py`, `mountain_wetlands.py`, `openalex_source.py`) plus shared helpers (`common.py`, `sessions.py`, `metadata_html.py`) and **enrichment** modules (`openalex.py` and `openaire.py`, coordinated via the fill-if-empty `enrichment.py::apply_enrichment` helper). Public entry points are re-exported from [tasks.py](works/tasks.py) so Django-Q dotted-path schedules keep working. OpenAIRE enrichment runs as an async post-harvest sweep enqueued from `common.py::complete_harvest` (all sources) and via the `enrich_openaire` backfill command.
+  - **Harvesting** ([harvesting/](works/harvesting/)) — one module per source type (`oai.py`, `rss.py`, `crossref.py`, `mountain_wetlands.py`, `openalex_source.py`) plus shared helpers (`common.py`, `sessions.py`, `metadata_html.py`), OAI-PMH endpoint **discovery** (`discovery.py`, used by `/manage/sources/new/`), and **enrichment** modules (`openalex.py` and `openaire.py`, coordinated via the fill-if-empty `enrichment.py::apply_enrichment` helper). Public entry points are re-exported from [tasks.py](works/tasks.py) so Django-Q dotted-path schedules keep working. OpenAIRE enrichment runs as an async post-harvest sweep enqueued from `common.py::complete_harvest` (all sources) and via the `enrich_openaire` backfill command.
   - **Other tasks** ([tasks.py](works/tasks.py)) — non-harvest Django-Q tasks: monthly email digest, subscription emails, GeoJSON / GeoPackage cache regeneration, schedule helpers.
+  - **Management UI** ([views_manage.py](works/views_manage.py)) — staff-only `/manage/` area (harvesting/sources management, issues #133/#44) plus async-task/cluster monitoring (issue #130) built on read-only helpers in [qmonitor.py](works/qmonitor.py) over Django-Q's own `Task`/`OrmQ`/`Schedule` models and cache-based `Stat`. Templates under `works/templates/manage/`.
   - **API** ([api.py](works/api.py), [viewsets.py](works/viewsets.py), [serializers.py](works/serializers.py)) - DRF REST API at `/api/v1/`
   - **Feeds** ([feeds.py](works/feeds.py), [feeds_geometry.py](works/feeds_geometry.py)) - GeoRSS/GeoAtom feed generation
   - **EO4GEO BoK** ([bok/](works/bok/)) — thin client + cached trimmed snapshot of the [Body of Knowledge](https://eo4geo.eu/bok/) (`client.py`), public autosuggest endpoint at `/api/v1/bok/search/` (`views.py`), code validators (`validators.py`). Cached in the `default` DB cache, lazy on miss; refresh via `python manage.py refresh_bok_snapshot`. See [docs/manage.md](docs/manage.md#eo4geo-bok-snapshot).
@@ -448,8 +450,22 @@ For harvest completion/failure emails use `render_harvest_email` from `works.har
 - `/pages` - Human-readable sitemap with organized page list
 - `/feeds/` - Feed landing pages for global and regional RSS/Atom feeds
 - `/ogcapi/` - OGC API - Features landing page (pygeoapi). Only active when `etc/pygeoapi-openapi.yml` exists — generate with `python manage.py generate_pygeoapi_openapi`. See [docs/ogcapi-clients.md](docs/ogcapi-clients.md) for Python/R/QGIS usage examples.
+- `/manage/` - Staff-only harvesting/sources management UI + async-task/cluster monitoring (issues #133, #44, #130). See [docs/manage.md](docs/manage.md#manage-harvesting-via-the-manage-ui-issues-133-44) and [works/views_manage.py](works/views_manage.py).
 
 ## API & Endpoints
+
+> **Endpoint/URL naming — nouns for resource paths, not verbs.** New endpoints should name
+> a *resource* (`/manage/harvests/`, `/manage/sources/<id>/`) and use the HTTP method to say
+> what happens to it: `GET` reads, `POST` writes/creates/triggers. Avoid `…/trigger/`,
+> `…/status.json`, `…/discover/`-style verb suffixes — content-negotiate on the same resource
+> instead (e.g. `?format=json` for a polling payload) if a second representation is needed.
+> The one accepted exception is `…/edit/` and `…/delete/` sub-paths: plain HTML `<form>`
+> elements can only submit `GET`/`POST`, so there is no way to make a browser issue `PATCH`
+> or `DELETE` against the resource URL itself — `edit/` serves the edit *form* (a `GET`),
+> and the form's `POST` still targets the bare resource URL (see `/manage/sources/<id>/edit/`
+> vs. `/manage/sources/<id>/`); `delete/` is a `POST`-only guarded action with no GET
+> equivalent. Existing verb-style endpoints (`/download/geojson/`, `/regions/curate/backfill/`,
+> etc.) are left as-is — this convention applies to endpoints added from here on, not a retrofit.
 
 > **Keep the API docs in sync with the code.** Whenever you add, remove, or change a REST
 > endpoint — including new `@action` methods, new ViewSets, new function-based `@api_view`
@@ -466,6 +482,7 @@ For harvest completion/failure emails use `render_harvest_email` from `works.har
 - `/api/v1/` - REST API root (see `/api/schema/ui/` for OpenAPI docs)
 - `/api/v1/works/contribute-doi/` - POST (auth required) to add a new work by DOI; harvests Crossref + enrichment synchronously, returns existing-vs-created. See [docs/manage.md](docs/manage.md#user-contributions-by-doi)
 - `/admin/` - Django admin interface
+- `/manage/` - Staff-only management UI: dashboard, `/manage/sources/`, `/manage/harvests/`, `/manage/tasks/` (plain Django views, not DRF — kept out of `/api/v1/`). See [docs/manage.md](docs/manage.md#manage-harvesting-via-the-manage-ui-issues-133-44)
 - `/download/geojson/` - Download full publication dataset as GeoJSON
 - `/download/geopackage/` - Download as GeoPackage
 - `/download/csv/` - Download as CSV (one row per work, `WKT` geometry column in OGC Simple Features)

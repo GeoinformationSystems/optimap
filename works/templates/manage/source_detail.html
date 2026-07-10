@@ -1,0 +1,107 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+
+{% block title %}{{ source.name }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-11 col-lg-10">
+      {% include "manage/_nav_tabs.html" with active="sources" %}
+
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+          <h1>{{ source.name }}</h1>
+          <p class="text-muted mb-0">{{ source.get_source_type_display }} &middot; {{ source.url_field }}</p>
+        </div>
+        <div>
+          <a href="{% url 'optimap:manage-source-edit' source.id %}" class="btn btn-outline-secondary"><i class="fas fa-edit"></i> Edit</a>
+          {% if source.get_absolute_url %}
+          <a href="{{ source.get_absolute_url }}" class="btn btn-outline-secondary" target="_blank" rel="noopener"><i class="fas fa-external-link-alt"></i> View page</a>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="row mb-4">
+        <div class="col-md-8">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <strong>Trigger a harvest</strong>
+            </div>
+            <div class="card-body">
+              {% if has_task %}
+              <form method="post" action="{% url 'optimap:manage-harvests' %}" class="form-inline">
+                {% csrf_token %}
+                <input type="hidden" name="source" value="{{ source.id }}">
+                <label for="max_records" class="mr-2">Max records</label>
+                <input type="number" id="max_records" name="max_records" class="form-control mr-2" min="1" placeholder="unlimited">
+                <button type="submit" class="btn btn-success"><i class="fas fa-play"></i> Harvest now</button>
+              </form>
+              {% else %}
+              <p class="text-muted mb-0">No harvester is registered for source type {{ source.get_source_type_display }}.</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-header"><strong>Danger zone</strong></div>
+            <div class="card-body">
+              <form method="post" action="{% url 'optimap:manage-source-delete' source.id %}"
+                    onsubmit="return confirm('Delete source {{ source.name|escapejs }}? This cannot be undone.');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fas fa-trash"></i> Delete source</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header"><strong>Recent harvesting events</strong></div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Status</th><th>Trigger</th><th>Started</th><th>Added</th><th>Updated</th></tr></thead>
+            <tbody>
+              {% for event in recent_events %}
+              <tr>
+                <td><a href="{% url 'optimap:manage-harvest-detail' event.id %}">{% include "manage/_status_badge.html" %}</a></td>
+                <td class="small text-muted">{{ event.get_trigger_source_display }}</td>
+                <td class="small text-muted">{{ event.started_at|date:"Y-m-d\TH:i" }}</td>
+                <td>{{ event.records_added|default:"—" }}</td>
+                <td>{{ event.records_updated|default:"—" }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" class="text-muted text-center p-3">No harvesting events yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><strong>Works from this source ({{ page_obj.paginator.count }})</strong></div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Title</th><th>Status</th><th>DOI</th></tr></thead>
+            <tbody>
+              {% for work in page_obj %}
+              <tr>
+                <td><a href="{% url 'optimap:work-landing' work.get_identifier %}" target="_blank" rel="noopener">{{ work.title|truncatechars:80 }}</a></td>
+                <td>{{ work.get_status_display }}</td>
+                <td class="small text-muted">{{ work.doi|default:"—" }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="3" class="text-muted text-center p-3">No works harvested from this source yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% include "_pagination_nav.html" with pagination_label="works pagination" %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}

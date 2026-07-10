@@ -5,6 +5,7 @@ import os
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import django
 import responses
@@ -509,6 +510,80 @@ class HarvestingErrorTests(TestCase):
         # Should process only 1 record
         pub_count = Work.objects.filter(job=event).count()
         self.assertLessEqual(pub_count, 1, "Should respect max_records limit even with errors")
+
+
+class OaiTemporalExtractionGuardTests(TestCase):
+    """Regression: extract_timeperiod_from_html() returns [None]/[None] both
+    for a genuine open-ended interval (one side real) and for "the landing
+    page has no temporal metadata at all" — parse_oai_xml_and_save_works must
+    only persist that sentinel when it actually carries a real value on
+    either side, or every work with no temporal metadata ends up looking
+    exactly like one with a genuine (if open-ended) extent."""
+
+    def setUp(self):
+        Work.objects.all().delete()
+        self.source = Source.objects.create(
+            url_field="http://example.com/oai", harvest_interval_minutes=60, name="Temporal Guard Test Source"
+        )
+
+    @responses.activate
+    def test_no_temporal_metadata_on_page_leaves_arrays_empty(self):
+        responses.add(
+            responses.GET,
+            "http://example.com/article/1",
+            body="<html><head><title>No dates here</title></head></html>",
+        )
+        xml_bytes = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+          <ListRecords>
+            <record>
+              <header><identifier>oai:example:1</identifier></header>
+              <metadata>
+                <oai_dc:dc xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
+                    xmlns:dc="http://purl.org/dc/elements/1.1/">
+                  <dc:title>No Temporal Data</dc:title>
+                  <dc:identifier>http://example.com/article/1</dc:identifier>
+                </oai_dc:dc>
+              </metadata>
+            </record>
+          </ListRecords>
+        </OAI-PMH>"""
+
+        event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+        parse_oai_xml_and_save_works(xml_bytes, event)
+
+        work = Work.objects.get(job=event)
+        self.assertEqual(work.timeperiod_startdate, [])
+        self.assertEqual(work.timeperiod_enddate, [])
+
+    def test_landing_page_fetch_exceeding_deadline_still_saves_the_work(self):
+        # Regression: a landing-page fetch that hangs past its wall-clock
+        # deadline (fetch_with_deadline raises TimeoutError) must degrade
+        # like any other fetch failure — the record is still saved (without
+        # geometry/temporal data), not lost or left to crash the harvest.
+        xml_bytes = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+          <ListRecords>
+            <record>
+              <header><identifier>oai:example:2</identifier></header>
+              <metadata>
+                <oai_dc:dc xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
+                    xmlns:dc="http://purl.org/dc/elements/1.1/">
+                  <dc:title>Slow Landing Page</dc:title>
+                  <dc:identifier>http://example.com/article/2</dc:identifier>
+                </oai_dc:dc>
+              </metadata>
+            </record>
+          </ListRecords>
+        </OAI-PMH>"""
+
+        event = HarvestingEvent.objects.create(source=self.source, status="in_progress")
+        with patch("works.harvesting.oai.fetch_with_deadline", side_effect=TimeoutError("exceeded deadline")):
+            parse_oai_xml_and_save_works(xml_bytes, event)
+
+        work = Work.objects.get(job=event)
+        self.assertEqual(work.title, "Slow Landing Page")
+        self.assertTrue(work.geometry.empty)
 
 
 class HarvestingHttpHardeningTests(TestCase):

@@ -40,6 +40,10 @@ services:
       - db
       - app
     restart: always
+    # See docker-compose.yml's djangoq service for why: gives Django-Q's own
+    # graceful-shutdown drain (triggered by the SIGTERM `docker compose stop`/
+    # `restart`/`down` send) more room before Docker escalates to SIGKILL.
+    stop_grace_period: 60s
 
   webserver:
     image: nginx:1.27-alpine

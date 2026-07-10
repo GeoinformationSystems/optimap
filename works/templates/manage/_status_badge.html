@@ -1,0 +1,7 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# Shared HarvestingEvent status badge. Include with `event`. #}
+<span class="badge badge-{% if event.status == 'completed' %}success{% elif event.status == 'failed' %}danger{% elif event.status == 'cancelled' %}warning{% elif event.status == 'in_progress' %}info{% else %}secondary{% endif %}">{{ event.get_status_display }}</span>
+{% if event.is_stale %}
+<i class="fas fa-exclamation-triangle text-warning" data-toggle="tooltip" title="{{ event.staleness_message }}"></i>
+{% endif %}

@@ -16,6 +16,7 @@ from works import (
     views_gazetteer,
     views_geometry,
     views_indexed,
+    views_manage,
     views_regions,
     views_sources,
 )
@@ -45,6 +46,19 @@ urlpatterns = [
     path("statistics/", work_views.statistics_page, name="statistics"),
     # Admin
     path("admin/", admin.site.urls),
+    # Management UI (staff-only): harvesting/sources management (#133, #44) +
+    # async-task/cluster monitoring (#130). Noun resource paths — GET reads,
+    # POST writes; see works/views_manage.py module docstring.
+    path("manage/", views_manage.dashboard, name="manage-dashboard"),
+    path("manage/sources/", views_manage.sources, name="manage-sources"),
+    path("manage/sources/new/", views_manage.source_new, name="manage-source-new"),
+    path("manage/sources/<int:source_id>/", views_manage.source_detail, name="manage-source-detail"),
+    path("manage/sources/<int:source_id>/edit/", views_manage.source_edit, name="manage-source-edit"),
+    path("manage/sources/<int:source_id>/delete/", views_manage.source_delete, name="manage-source-delete"),
+    path("manage/harvests/", views_manage.harvests, name="manage-harvests"),
+    path("manage/harvests/<int:event_id>/", views_manage.harvest_detail, name="manage-harvest-detail"),
+    path("manage/tasks/", views_manage.tasks, name="manage-tasks"),
+    path("manage/tasks/<str:task_id>/", views_manage.task_detail, name="manage-task-detail"),
     # API
     path("api/", lambda request: redirect("v1/", permanent=True), name="api"),
     path("api/v1/", include((publications_router.urls, "works"), namespace="works"), name="api_current"),

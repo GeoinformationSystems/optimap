@@ -9,6 +9,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.gis.geos.error import GEOSException
 from django.db.models.signals import pre_delete, pre_save
 from django.dispatch import receiver
+from django.urls import reverse
+from django_q.signals import post_execute
 
 User = get_user_model()
 from django.conf import settings
@@ -305,3 +307,73 @@ def resolve_incoming_work_relations(sender, instance, **kwargs):
         WorkRelation.objects.filter(to_work__isnull=True, to_identifier__in=candidates).update(to_work=instance)
     except Exception as err:  # pragma: no cover — non-critical path
         logger.warning("work-relation resolution failed for work %s: %s", instance.pk, err)
+
+
+# --- Generic async-task failure notification (#130) -------------------------
+
+# Task functions that already email staff on abort via their own dedicated
+# notifier (notify_openaire_abort / notify_backfill_abort) before re-raising.
+# Skipped here to avoid a duplicate notification for the same failure.
+_SELF_NOTIFYING_TASK_FUNCS = frozenset(
+    {
+        "works.harvesting.openaire.enrich_event_from_openaire",
+        "works.tasks.enrich_openaire_backfill",
+        "works.tasks.backfill_author_orcids_task",
+    }
+)
+
+
+@receiver(post_execute)
+def notify_on_task_failure(sender, task, **kwargs):
+    """Email active staff when a Django-Q task crashes uncaught (issue #130).
+
+    Complements the harvest-specific failure emails (``harvest_*`` tasks catch
+    their own exceptions and call ``fail_harvest`` + ``render_harvest_email``,
+    so Django-Q records ``success=True`` for them even when the harvest
+    failed) and the OpenAIRE/ORCID abort notifiers (which already email staff
+    before re-raising, see ``_SELF_NOTIFYING_TASK_FUNCS``) — this is the
+    generic catch-all for *uncaught* crashes in any other background task
+    (data-dump regeneration, digests, backfills, …).
+    """
+    if task.get("success") is not False:
+        return
+    func = task.get("func") or ""
+    if func in _SELF_NOTIFYING_TASK_FUNCS:
+        return
+
+    from django.conf import settings
+    from django.core.mail import send_mail
+
+    from works.models import EmailLog
+    from works.utils.email import render_email
+
+    recipients = list(
+        User.objects.filter(is_staff=True, is_active=True).exclude(email="").values_list("email", flat=True)
+    )
+    if not recipients:
+        logger.warning("notify_on_task_failure: no staff emails configured; alert not sent for %s.", func)
+        return
+
+    task_id = task.get("id")
+    task_url = f"{settings.BASE_URL}{reverse('optimap:manage-task-detail', args=[task_id])}" if task_id else ""
+    subject, body = render_email(
+        "email/task_failure_admin.en.txt",
+        {
+            "func": func,
+            "task_id": task_id,
+            "group": task.get("group") or "",
+            "stopped": task.get("stopped"),
+            "result": task.get("result"),
+            "task_url": task_url,
+            "base_url": settings.BASE_URL,
+        },
+    )
+    for recipient in recipients:
+        try:
+            send_mail(subject, body, settings.EMAIL_HOST_USER, [recipient], fail_silently=False)
+            EmailLog.log_email(recipient, subject, body, trigger_source="scheduled", status="success")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("notify_on_task_failure: failed to email %s.", recipient)
+            EmailLog.log_email(
+                recipient, subject, body, trigger_source="scheduled", status="failed", error_message=str(exc)
+            )

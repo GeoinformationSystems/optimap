@@ -21,10 +21,14 @@ import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
+from django.db.models import BooleanField
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 from django_q.tasks import async_task
 
 from works.models import Work
+
+from .openalex import openalex_enrichment_note
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -389,6 +393,84 @@ def _backfill_empty_doi(work, new_doi, event):
     logger.info("Backfilled empty DOI on work id=%s with %s", work.id, new_doi)
 
 
+_WORK_OUTCOME_LABELS = {
+    "created": "Saved",
+    "updated": "Updated",
+    "doi_backfilled": "DOI backfilled",
+    "skipped_same_source": "Skipped (duplicate)",
+    "skipped_cross_source": "Skipped (already under another source)",
+}
+
+
+def _short_title(title, fallback="No title", limit=80):
+    """Truncate a work title for a one-line UI log entry, with a consistent
+    fallback when it's missing — used by every ``log_work_*`` helper below so
+    the wording/length is the same regardless of which harvester logged it.
+    """
+    return (title or fallback)[:limit]
+
+
+def log_work_retrieved(event, title):
+    """One-line UI log as soon as a harvester decides to process a record
+    (i.e. it passed the harvester's own early-dedup check) — the "retrieved"
+    checkpoint of the per-work log line trio (retrieved/enriched/saved).
+    """
+    if event is None:
+        return
+    event.log_work(f"Retrieved: {_short_title(title)}")
+
+
+def log_work_enriched(event, title, openalex_fields):
+    """One-line UI log for the OpenAlex enrichment outcome, right after
+    ``build_openalex_fields()`` runs. Harvesters that don't enrich via
+    OpenAlex (the IGSN sample harvesters, GeoScienceWorld, OpenAlex-as-source)
+    don't call this — there is nothing to report.
+    """
+    if event is None:
+        return
+    event.log_work(f"Enriched: {_short_title(title)} — OpenAlex {openalex_enrichment_note(openalex_fields)}")
+
+
+def log_work_failed(event, title, exc):
+    """One-line UI log when persisting a record raises."""
+    if event is None:
+        return
+    event.log_work(f"Failed to save: {_short_title(title)} — {exc}")
+
+
+def log_work_outcome(event, work_kwargs, work, action):
+    """Emit one ``event.log_work()`` line summarising a single harvested record.
+
+    Centralised here (rather than duplicated in every harvester) so every
+    record — created, updated, or skipped as a duplicate — shows up at least
+    once in the live ``/manage/harvests/<id>/`` log, with its OpenAlex
+    enrichment outcome folded into the same line (``build_openalex_fields``
+    always sets ``openalex_id`` — ``None`` on no match — so its presence in
+    ``work_kwargs`` is a reliable signal; harvesters that don't enrich via
+    OpenAlex, e.g. the IGSN sample harvesters, simply omit that key and get
+    no enrichment note). No-op when there is no event, matching
+    ``_record_harvest_outcome``.
+    """
+    if event is None:
+        return
+    title = _short_title(work_kwargs.get("title"))
+    ident = f"id={work.id}: " if getattr(work, "id", None) else ""
+    label = _WORK_OUTCOME_LABELS.get(action, action)
+    enrich = f" (OpenAlex: {openalex_enrichment_note(work_kwargs)})" if "openalex_id" in work_kwargs else ""
+    event.log_work(f"{label} {ident}{title}{enrich}")
+
+
+def log_work_skip(event, title, cross_source):
+    """One-line UI log for a record skipped by a harvester's *early* dedup check
+    (before ``_save_or_update_work`` — and its own ``log_work_outcome`` call —
+    ever runs), so early-skipped duplicates still show up at least once.
+    """
+    if event is None:
+        return
+    label = _WORK_OUTCOME_LABELS["skipped_cross_source" if cross_source else "skipped_same_source"]
+    event.log_work(f"{label}: {_short_title(title)}")
+
+
 def _save_or_update_work(work_kwargs, source, event, update_existing=False):
     """Create or update a Work, applying per-source dedup.
 
@@ -398,7 +480,19 @@ def _save_or_update_work(work_kwargs, source, event, update_existing=False):
       * ``'doi_backfilled'`` — existing work had no DOI; only ``doi`` was filled in,
       * ``'skipped_same_source'`` — same-source duplicate, ``update_existing`` was False,
       * ``'skipped_cross_source'`` — different-source duplicate (never auto-merged).
+
+    ``author_records`` (ORCID-bearing author identity dicts from
+    ``build_openalex_fields``/the OpenAlex-as-source harvester) is not a real
+    ``Work`` field — it's meant for ``link_openalex_authors()`` to read
+    *after* the save, not for ``Work.objects.create()``/``setattr()`` here.
+    Several harvesters build ``work_kwargs`` via ``dict(..., **openalex_fields)``,
+    so it has to be stripped centrally rather than relying on every harvester
+    to remember to pop it. Stripped from a **copy**, not in place — several
+    callers pass the very same dict to ``link_openalex_authors()`` right
+    after calling this function and still need ``author_records`` there.
     """
+    if "author_records" in work_kwargs:
+        work_kwargs = {k: v for k, v in work_kwargs.items() if k != "author_records"}
     doi_value = work_kwargs.get("doi")
     url_value = work_kwargs.get("url")
 
@@ -417,20 +511,48 @@ def _save_or_update_work(work_kwargs, source, event, update_existing=False):
                 doi_value or url_value,
                 existing.source_id,
             )
-            return existing, "doi_backfilled" if backfilled else "skipped_cross_source"
+            action = "doi_backfilled" if backfilled else "skipped_cross_source"
+            log_work_outcome(event, work_kwargs, existing, action)
+            return existing, action
         if not update_existing:
             logger.debug(
                 "Skipping same-source duplicate %s (use --update / update_existing=True to refresh)",
                 doi_value or url_value,
             )
-            return existing, "doi_backfilled" if backfilled else "skipped_same_source"
+            action = "doi_backfilled" if backfilled else "skipped_same_source"
+            log_work_outcome(event, work_kwargs, existing, action)
+            return existing, action
         _carefully_update_work(existing, work_kwargs, event)
         _reconcile_dedup(existing)
+        _record_harvest_outcome(event, existing, "updated")
+        log_work_outcome(event, work_kwargs, existing, "updated")
         return existing, "updated"
 
     work = Work.objects.create(**work_kwargs)
     _reconcile_dedup(work)
+    _record_harvest_outcome(event, work, "created", new=True)
+    log_work_outcome(event, work_kwargs, work, "created")
     return work, "created"
+
+
+def _record_harvest_outcome(event, work, action, new=False):
+    """Record a per-work ``HarvestRecord`` row for this event's created/updated works.
+
+    Lets ``/manage/harvests/<id>/`` list exactly which works were newly
+    harvested vs. updated by this event. No-op when there is no event (e.g. a
+    bare unit-test call to ``_save_or_update_work`` without one). ``new=True``
+    (the ``created`` branch) skips the existence check — ``work`` was just
+    inserted, so no ``HarvestRecord`` for this ``(event, work)`` pair can
+    already exist.
+    """
+    if event is None:
+        return
+    from works.models import HarvestRecord  # local import avoids circular import
+
+    if new:
+        HarvestRecord.objects.create(event=event, work=work, action=action)
+    else:
+        HarvestRecord.objects.update_or_create(event=event, work=work, defaults={"action": action})
 
 
 def _reconcile_dedup(work):
@@ -451,7 +573,12 @@ def _reconcile_dedup(work):
             work = reconcile(work) or work
         reconcile_versions(work)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Dedup reconcile failed for work id=%s: %s", getattr(work, "id", None), exc)
+        # This runs on every created/updated work across every harvester, so a
+        # real bug in reconcile()/reconcile_versions() (vs. a genuine
+        # "nothing to merge" no-op, which never raises) would otherwise be a
+        # single indistinguishable warning line repeated for every record.
+        # exc_info gives the traceback a chance of being noticed/searched for.
+        logger.warning("Dedup reconcile failed for work id=%s: %s", getattr(work, "id", None), exc, exc_info=True)
 
 
 # -----------------------------------------------------------------------------
@@ -467,36 +594,109 @@ def resolve_user(user):
     return user
 
 
-def start_harvesting_event(source, event_id=None):
-    """Return the ``HarvestingEvent`` to harvest into, set to ``in_progress``.
+def start_harvesting_event(source, event_id=None, trigger_source=None, max_records=None):
+    """Return the ``HarvestingEvent`` to harvest into, set to ``in_progress``,
+    or ``None`` if this call must not start a harvest at all (see below).
 
     When ``event_id`` is given (the ``--async`` route in ``harvest_sources``
     pre-creates a ``pending`` event so its PK can be printed and matched in the
-    Django admin), reuse that row instead of creating a fresh one — but only if
-    it still belongs to ``source`` and hasn't already run. Otherwise (recurring
-    schedules, synchronous CLI, admin actions) create a new event as before.
+    Django admin, and the ``/manage/`` UI does the same), reuse that row instead
+    of creating a fresh one — but only if it still belongs to ``source`` and
+    hasn't already run. Its ``trigger_source`` was already set by whoever
+    pre-created it, so ``trigger_source`` is ignored on this path. Otherwise
+    (recurring schedules, synchronous CLI, admin actions) create a new event,
+    stamped with ``trigger_source`` (defaults to the model's own default,
+    ``"schedule"``, when not given — the correct attribution for a bare
+    recurring Django-Q schedule call).
+
+    ``max_records`` (the cap this run is actually using — ``None`` for an
+    unbounded/full run) is always recorded on the event, on both the create
+    and the reuse path: ``harvest_crossref_prefix``'s incremental "since last
+    harvest" window only advances past a completed event where this is
+    ``None``, so a capped smoke-test run never becomes the watermark (see
+    that function for why that matters).
+
+    Returns ``None`` when ``event_id`` is given but that event has *already*
+    reached a terminal status (``completed``/``failed``/``cancelled``). The
+    only callers that ever pass ``event_id`` pre-create exactly one ``pending``
+    event and enqueue exactly one task against it — so reaching this function
+    with that event already terminal means Django-Q is re-executing the very
+    same task after a prior attempt already concluded (its own retry-on-
+    timeout/failure mechanism runs independently of any application trigger,
+    and can fire well after the original attempt finished). Starting a second
+    harvest here would create a fresh event with no real ``trigger_source``
+    to stamp it with (silently defaulting to the model's "schedule" default,
+    which is actively misleading — no schedule caused it) and can repeat
+    indefinitely for a single stuck task. Callers must treat ``None`` as
+    "nothing to do" and return without harvesting or emailing a failure.
     """
     from works.models import HarvestingEvent  # local import avoids circular import
 
     if event_id is not None:
         event = HarvestingEvent.objects.filter(id=event_id, source=source).first()
-        if event is not None and event.status in ("pending", "in_progress"):
-            if event.status != "in_progress":
-                event.status = "in_progress"
-                event.save(update_fields=["status"])
-            return event
-    return HarvestingEvent.objects.create(source=source, status="in_progress")
+        if event is not None:
+            if event.status in ("pending", "in_progress"):
+                update_fields = []
+                if event.status != "in_progress":
+                    event.status = "in_progress"
+                    update_fields.append("status")
+                if event.max_records != max_records:
+                    event.max_records = max_records
+                    update_fields.append("max_records")
+                if update_fields:
+                    event.save(update_fields=update_fields)
+                return event
+            logger.warning(
+                "start_harvesting_event: event id=%s for source '%s' is already '%s' — refusing "
+                "to start a duplicate run (likely a Django-Q retry of an already-concluded task).",
+                event_id,
+                source.name,
+                event.status,
+            )
+            return None
+    kwargs = {"source": source, "status": "in_progress", "max_records": max_records}
+    if trigger_source is not None:
+        kwargs["trigger_source"] = trigger_source
+    return HarvestingEvent.objects.create(**kwargs)
 
 
 def count_spatial_temporal(event):
-    """Return ``(spatial_count, temporal_count)`` for works attached to ``event``."""
-    spatial = Work.objects.filter(job=event).exclude(geometry__isnull=True).count()
-    temporal = (
-        Work.objects.filter(job=event)
-        .exclude(timeperiod_startdate__isnull=True)
-        .exclude(timeperiod_startdate=[])
-        .count()
+    """Return ``(spatial_count, temporal_count)`` for works attached to ``event``.
+
+    A non-empty ``timeperiod_startdate``/``timeperiod_enddate`` isn't enough on
+    its own: ``extract_timeperiod_from_html()`` stores ``[None]`` both for a
+    genuine open-ended interval (one side real, e.g. ``["2020-01-01"]``/``[None]``)
+    *and*, if a caller doesn't guard against it, for "no temporal metadata found
+    at all" — so counting on emptiness alone overcounts works with no real date.
+    A work counts as having a temporal extent only if at least one entry across
+    both arrays is a real (non-``None``) value.
+
+    Both counts are plain DB-side ``COUNT`` queries, not a Python loop pulling
+    every row's arrays into memory to inspect them — this is called on every
+    JSON poll of a running ``/manage/harvests/<id>/`` page, and a harvest can
+    attach tens of thousands of works to one event. ``array_remove(arr, NULL)``
+    strips ``None`` entries in-database (Postgres compares with ``IS NOT
+    DISTINCT FROM``, so it removes NULLs too); a non-empty result means at
+    least one side carries a real value.
+    """
+    qs = Work.objects.filter(job=event)
+    spatial = qs.exclude(geometry__isnull=True).exclude(geometry__isempty=True).count()
+    has_real_temporal_value = RawSQL(
+        "array_length(array_remove(timeperiod_startdate, NULL::text), 1) > 0"
+        " OR array_length(array_remove(timeperiod_enddate, NULL::text), 1) > 0",
+        (),
+        output_field=BooleanField(),
     )
+    temporal = qs.annotate(has_temporal=has_real_temporal_value).filter(has_temporal=True).count()
+    # Previous implementation — pulled both arrays for every row into Python
+    # and inspected them there. Kept for reference/comparison in case a future
+    # iteration needs to revisit the DB-side version (e.g. if array_remove
+    # semantics ever need adjusting for a new harvester's data shape).
+    #
+    # temporal = 0
+    # for starts, ends in qs.values_list("timeperiod_startdate", "timeperiod_enddate"):
+    #     if any(d is not None for d in (starts or [])) or any(d is not None for d in (ends or [])):
+    #         temporal += 1
     return spatial, temporal
 
 
@@ -720,8 +920,25 @@ def complete_harvest(event, stats, warning_collector, spatial_count=None, tempor
     event.records_skipped = stats.skipped
     event.records_with_spatial = spatial_count
     event.records_with_temporal = temporal_count
-    event.log_text = warning_collector.get_summary()
-    event.save()
+    # Append the final warning/error summary after whatever incremental
+    # progress lines append_log() already wrote during the run, rather than
+    # overwriting them — the incremental trail is the whole point of the
+    # live-log poller on /manage/harvests/<id>/.
+    summary = warning_collector.get_summary()
+    event.log_text = f"{event.log_text}\n\n{summary}" if event.log_text else summary
+    _persist_event(
+        event,
+        {
+            "status": event.status,
+            "completed_at": event.completed_at,
+            "records_added": event.records_added,
+            "records_updated": event.records_updated,
+            "records_skipped": event.records_skipped,
+            "records_with_spatial": event.records_with_spatial,
+            "records_with_temporal": event.records_with_temporal,
+            "log_text": event.log_text,
+        },
+    )
     source = event.source if event else None
     stat_lines = list(
         filter(
@@ -735,7 +952,7 @@ def complete_harvest(event, stats, warning_collector, spatial_count=None, tempor
     )
     if stat_lines:
         event.log_text = (event.log_text or "") + "\n\n" + "\n".join(stat_lines)
-        event.save(update_fields=["log_text"])
+        _persist_event(event, {"log_text": event.log_text})
 
     # Enqueue the OpenAIRE enrichment sweep for this event's works (all sources).
     # Async so harvest speed is decoupled from OpenAIRE's rate limit; the sweep
@@ -755,13 +972,52 @@ def complete_harvest(event, stats, warning_collector, spatial_count=None, tempor
     return spatial_count, temporal_count
 
 
+def _persist_event(event, fields):
+    """Save ``fields`` (already set on ``event``) with a queryset-``update()``
+    fallback if the plain ``.save()`` fails.
+
+    A harvest's terminal status must be recorded even if the in-memory
+    ``event`` instance has gone stale (e.g. its ``user`` was deleted by
+    something else while the harvest was running) — a stale cached
+    foreign-key value can make ``Model.save()`` refuse to write (or trip a
+    real FK constraint, since a full save includes every field, not just the
+    ones that changed). ``QuerySet.update()`` only touches the given column
+    names and never re-evaluates related-object caches, so it succeeds even
+    when ``.save()`` can't.
+    """
+    try:
+        event.save()
+    except Exception as exc:  # noqa: BLE001 — must not leave the event stuck in-progress
+        from works.models import HarvestingEvent  # local import avoids circular import
+
+        logger.warning(
+            "HarvestingEvent %s: full save() failed (%s); falling back to a targeted update() "
+            "for %s so the terminal status is still recorded.",
+            event.pk,
+            exc,
+            sorted(fields),
+        )
+        HarvestingEvent.objects.filter(pk=event.pk).update(**fields)
+
+
 def fail_harvest(event, exc, warning_collector):
     """Stamp failure state on a HarvestingEvent and persist the log + error message."""
     event.status = "failed"
     event.completed_at = timezone.now()
     event.error_message = str(exc)[:1000]
-    event.log_text = warning_collector.get_summary()
-    event.save()
+    # Append after any incremental append_log() lines rather than overwriting
+    # them — see the matching comment in complete_harvest().
+    summary = warning_collector.get_summary()
+    event.log_text = f"{event.log_text}\n\n{summary}" if event.log_text else summary
+    _persist_event(
+        event,
+        {
+            "status": event.status,
+            "completed_at": event.completed_at,
+            "error_message": event.error_message,
+            "log_text": event.log_text,
+        },
+    )
 
 
 def send_harvest_email(user, subject, body, fail_silently=False):
@@ -780,12 +1036,26 @@ def send_harvest_email(user, subject, body, fail_silently=False):
         logger.error("Failed to send harvest email to %s: %s", user.email, e)
 
 
-def render_harvest_email(template_name, context):
+def harvest_event_url(event):
+    """Absolute URL to ``event``'s ``/manage/harvests/<id>/`` landing page."""
+    from django.urls import reverse
+
+    return f"{settings.BASE_URL}{reverse('optimap:manage-harvest-detail', args=[event.id])}"
+
+
+def render_harvest_email(template_name, context, event=None):
     """Render a harvest email template and split subject from body.
+
+    When ``event`` is given, ``context['detail_url']`` is set to its
+    ``/manage/harvests/<id>/`` landing-page URL (unless already present) —
+    letting a recipient jump straight to the live log/records for that run
+    instead of hunting for it in the list.
 
     Returns ``(subject, body)``. Delegates to ``works.utils.email.render_email``
     so autoescape is off (plain-text output — no HTML entities in URLs, etc.).
     """
     from works.utils.email import render_email
 
+    if event is not None:
+        context.setdefault("detail_url", harvest_event_url(event))
     return render_email(template_name, context)

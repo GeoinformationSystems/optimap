@@ -1,0 +1,284 @@
+{# SPDX-FileCopyrightText: 2026 OPTIMETA and KOMET projects <https://projects.tib.eu/komet> #}
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+
+{% extends "base.html" %}
+
+{% block title %}Harvest #{{ event.id }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5 manage-page">
+  <div class="row justify-content-center">
+    <div class="col-md-11 col-lg-10">
+      {% include "manage/_nav_tabs.html" with active="harvests" %}
+
+      <div class="d-flex justify-content-between align-items-start mb-3" id="harvest-header">
+        <div>
+          <h1>Harvest #{{ event.id }} — <a href="{% url 'optimap:manage-source-detail' event.source.id %}">{{ event.source.name }}</a></h1>
+          <p class="text-muted mb-0">
+            Triggered by {{ event.get_trigger_source_display }} &middot; started {{ event.started_at|date:"Y-m-d\TH:i" }}
+            {% if event.completed_at %} &middot; completed {{ event.completed_at|date:"Y-m-d\TH:i" }}{% endif %}
+            &middot; {% if event.max_records %}capped at {{ event.max_records }} record{{ event.max_records|pluralize }}{% else %}<span data-toggle="tooltip" title="Not capped — a full run advances the incremental 'since last harvest' watermark for Crossref sources.">full/unbounded run</span>{% endif %}
+          </p>
+        </div>
+        <div class="text-right">
+          <div class="d-flex align-items-center justify-content-end flex-wrap" id="status-row" style="gap: 0.5rem;">
+            <span id="status-badge" class="badge badge-lg badge-{% if event.status == 'completed' %}success{% elif event.status == 'failed' %}danger{% elif event.status == 'cancelled' %}warning{% elif event.status == 'in_progress' %}info{% else %}secondary{% endif %}">{{ event.get_status_display }}</span>
+            {% if can_cancel %}
+            <form method="post" id="cancel-form" class="m-0"
+                  onsubmit="return confirm('Cancel this queued harvest before it starts?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fas fa-ban"></i> Cancel</button>
+            </form>
+            {% endif %}
+          </div>
+          {% if event.is_stale %}
+          <div class="alert alert-warning mt-2 mb-0 p-2 small" id="staleness-warning">
+            <i class="fas fa-exclamation-triangle"></i> {{ event.staleness_message }}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if event.error_message %}
+      <div class="alert alert-danger" id="error-message">{{ event.error_message }}</div>
+      {% endif %}
+
+      <div class="row mb-4">
+        <div class="col-md-3"><div class="card text-center"><div class="card-body"><h3 id="stat-added">{{ event.records_added|default:"—" }}</h3><p class="text-muted mb-0">Newly harvested</p></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body"><h3 id="stat-updated">{{ event.records_updated|default:"—" }}</h3><p class="text-muted mb-0">Updated</p></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body"><h3 id="stat-spatial">{{ event.records_with_spatial|default:"—" }}</h3><p class="text-muted mb-0">With spatial extent</p></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body"><h3 id="stat-temporal">{{ event.records_with_temporal|default:"—" }}</h3><p class="text-muted mb-0">With temporal extent</p></div></div></div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Log</strong>
+          {% if is_running %}<span id="poll-indicator" class="small text-muted"></span>{% endif %}
+        </div>
+        <div class="card-body">
+          <pre id="log-text" style="white-space: pre-wrap; max-height: 400px; overflow: auto; margin: 0;">{{ event.log_text }}</pre>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-6 mb-4">
+          <div class="card">
+            <div class="card-header">Newly harvested (<span id="created-count">{{ created_page.paginator.count }}</span>)</div>
+            <ul class="list-group list-group-flush" id="created-list">
+              {% for record in created_page %}
+              <li class="list-group-item"><a href="{% url 'optimap:work-landing' record.work.get_identifier %}" target="_blank" rel="noopener">{{ record.work.title|truncatechars:70 }}</a></li>
+              {% empty %}
+              <li class="list-group-item text-muted">None yet.</li>
+              {% endfor %}
+            </ul>
+            {% if created_page.has_other_pages %}
+            <div class="card-footer">
+              {% include "_pagination_nav.html" with page_obj=created_page page_param="created_page" pagination_label="newly harvested pagination" %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="col-md-6 mb-4">
+          <div class="card">
+            <div class="card-header">Updated (<span id="updated-count">{{ updated_page.paginator.count }}</span>)</div>
+            <ul class="list-group list-group-flush" id="updated-list">
+              {% for record in updated_page %}
+              <li class="list-group-item"><a href="{% url 'optimap:work-landing' record.work.get_identifier %}" target="_blank" rel="noopener">{{ record.work.title|truncatechars:70 }}</a></li>
+              {% empty %}
+              <li class="list-group-item text-muted">None yet.</li>
+              {% endfor %}
+            </ul>
+            {% if updated_page.has_other_pages %}
+            <div class="card-footer">
+              {% include "_pagination_nav.html" with page_obj=updated_page page_param="updated_page" pagination_label="updated works pagination" %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<style>
+  .live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #28a745;
+    margin-right: 5px;
+    animation: live-dot-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes live-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+  /* Bootstrap 4 has no built-in badge size variants (unlike buttons' -sm/-lg).
+     .badge's defaults (font-size 75%, line-height 1, no border) render a
+     visibly shorter box than .btn-sm even at the same font-size/padding, so
+     line-height and a transparent border (matching .btn's own 1px border)
+     are copied across too — otherwise the badge sits ~6px shorter than the
+     Cancel button next to it. */
+  .badge-lg {
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  /* Work titles can be long unbroken strings (e.g. no spaces for tens of
+     characters) that would otherwise overflow the col-md-6 card width
+     instead of wrapping onto a second line. */
+  #created-list a, #updated-list a {
+    overflow-wrap: anywhere;
+  }
+</style>
+<script type="text/javascript">
+  // Poll the live log + status while the harvest is still running. Stops
+  // polling once the event reaches a terminal status (completed/failed).
+  // A visible countdown (updated every second) shows when the next poll
+  // will fire, so it's obvious the page is live without a manual refresh.
+  {% if is_running %}
+  (function () {
+    var POLL_SECONDS = 3;
+    var since = {{ event.log_text|length }};
+    var logEl = document.getElementById("log-text");
+    var badge = document.getElementById("status-badge");
+    var indicatorEl = document.getElementById("poll-indicator");
+    // Kept in sync with HarvestingEvent.STATUS_CHOICES / _status_badge.html.
+    var badgeClasses = {
+      pending: "badge-secondary",
+      in_progress: "badge-info",
+      completed: "badge-success",
+      failed: "badge-danger",
+      cancelled: "badge-warning"
+    };
+    var statusLabels = {pending: "Pending", in_progress: "Running", completed: "Completed", failed: "Failed", cancelled: "Cancelled"};
+    var secondsLeft = POLL_SECONDS;
+    var polling = false;
+    // Only replace the newly-harvested/updated lists while the visible page
+    // is the default (unpaginated) view — otherwise a live refresh would
+    // silently yank someone off page 2+ back onto a page-1 snapshot.
+    var onDefaultListPage = window.location.search.indexOf("created_page=") === -1
+      && window.location.search.indexOf("updated_page=") === -1;
+
+    function renderIndicator(text) {
+      if (indicatorEl) indicatorEl.innerHTML = '<span class="live-dot"></span>' + text;
+    }
+
+    function truncate(text, limit) {
+      text = text || "Untitled";
+      return text.length > limit ? text.slice(0, limit) + "…" : text;
+    }
+
+    function renderRecordList(listEl, records) {
+      if (!listEl || !onDefaultListPage) return;
+      listEl.textContent = ""; // clear via DOM, not innerHTML — records carry user-supplied titles
+      if (!records.length) {
+        var empty = document.createElement("li");
+        empty.className = "list-group-item text-muted";
+        empty.textContent = "None yet.";
+        listEl.appendChild(empty);
+        return;
+      }
+      records.forEach(function (record) {
+        var li = document.createElement("li");
+        li.className = "list-group-item";
+        var a = document.createElement("a");
+        a.href = record.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = truncate(record.title, 70);
+        li.appendChild(a);
+        listEl.appendChild(li);
+      });
+    }
+
+    function poll() {
+      if (polling) return; // previous request still in flight — don't overlap
+      polling = true;
+      renderIndicator("Updating…");
+      fetch(window.location.pathname + "?format=json&since=" + since)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.log_tail) {
+            logEl.textContent += data.log_tail;
+            logEl.scrollTop = logEl.scrollHeight;
+          }
+          since = data.log_length;
+          document.getElementById("stat-added").textContent = data.records_added !== null ? data.records_added : "—";
+          document.getElementById("stat-updated").textContent = data.records_updated !== null ? data.records_updated : "—";
+          document.getElementById("stat-spatial").textContent = data.records_with_spatial !== null ? data.records_with_spatial : "—";
+          document.getElementById("stat-temporal").textContent = data.records_with_temporal !== null ? data.records_with_temporal : "—";
+          if (data.records_added !== null) document.getElementById("created-count").textContent = data.records_added;
+          if (data.records_updated !== null) document.getElementById("updated-count").textContent = data.records_updated;
+          if (data.created_records) renderRecordList(document.getElementById("created-list"), data.created_records);
+          if (data.updated_records) renderRecordList(document.getElementById("updated-list"), data.updated_records);
+
+          badge.textContent = statusLabels[data.status] || data.status;
+          badge.className = "badge badge-lg " + (badgeClasses[data.status] || "badge-secondary");
+
+          // The Cancel button only applies to a still-queued (pending) event —
+          // once a worker picks it up, hide it immediately rather than leaving
+          // a stale, no-longer-valid button until the next full page load.
+          if (data.status !== "pending") {
+            var cancelForm = document.getElementById("cancel-form");
+            if (cancelForm) cancelForm.remove();
+          }
+
+          var staleDiv = document.getElementById("staleness-warning");
+          if (data.is_stale) {
+            if (!staleDiv) {
+              staleDiv = document.createElement("div");
+              staleDiv.id = "staleness-warning";
+              staleDiv.className = "alert alert-warning mt-2 mb-0 p-2 small";
+              document.getElementById("status-row").insertAdjacentElement("afterend", staleDiv);
+            }
+            staleDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + data.staleness_message;
+          } else if (staleDiv) {
+            staleDiv.remove();
+          }
+
+          if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+            if (data.status === "failed" && data.error_message) {
+              var errDiv = document.getElementById("error-message");
+              if (!errDiv) {
+                errDiv = document.createElement("div");
+                errDiv.id = "error-message";
+                errDiv.className = "alert alert-danger";
+                // Insert right after the header row, matching where the
+                // server-rendered version of this div sits in the markup.
+                document.getElementById("harvest-header").insertAdjacentElement("afterend", errDiv);
+              }
+              errDiv.textContent = data.error_message;
+            }
+            if (indicatorEl) indicatorEl.textContent = "";
+            // Reload once to pick up the final pagination footer/state.
+            window.location.reload();
+            return;
+          }
+          secondsLeft = POLL_SECONDS;
+          polling = false;
+        })
+        .catch(function () {
+          // Transient network error — back off to a longer countdown and retry.
+          secondsLeft = 5;
+          polling = false;
+        });
+    }
+
+    setInterval(function () {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) {
+        poll();
+      } else {
+        renderIndicator("Next update in " + secondsLeft + "s");
+      }
+    }, 1000);
+    renderIndicator("Next update in " + secondsLeft + "s");
+  })();
+  {% endif %}
+</script>
+{% endblock scripts %}

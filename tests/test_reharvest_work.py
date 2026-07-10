@@ -26,7 +26,7 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from works.harvesting.crossref import reharvest_work
-from works.models import Work
+from works.models import HarvestingEvent, Work
 
 User = get_user_model()
 
@@ -94,6 +94,14 @@ class ReharvestWorkFunctionTests(TestCase):
         events = (work.provenance or {}).get("events", [])
         self.assertTrue(any(e.get("type") == "harvest_update" for e in events))
         self.mock_oaire.assert_called_once()
+
+    @responses.activate
+    def test_event_defaults_to_manual_trigger_source(self):
+        self._register_landing("10.1234/trigger-src")
+        work = Work.objects.create(title="Stale title", doi="10.1234/trigger-src", status="h")
+        reharvest_work(work)
+        event = HarvestingEvent.objects.filter(source=work.source).latest("started_at")
+        self.assertEqual(event.trigger_source, "manual")
 
     @responses.activate
     def test_overrides_non_user_geometry_from_source(self):
