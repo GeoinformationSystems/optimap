@@ -8,3 +8,4 @@ coverage
 reuse
 fpdf2
 ruff
+pip-licenses

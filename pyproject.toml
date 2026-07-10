@@ -14,3 +14,14 @@ ignore = [
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.license-check]
+# Packages excluded from the dependency license check (the `licenses` CI job,
+# see .github/workflows/ci.yml) because their PyPI metadata is missing a
+# License field, so pip-licenses reports them as "Unknown". Each entry
+# documents the actual license and a source to verify it. Add new entries here
+# only after manually confirming the license is compatible with GPL-3.0-or-later.
+ignore-packages = [
+    "lazrs",      # MIT        — github.com/laz-rs/laz-rs-python (LICENSE.txt bundled, no metadata field; reported upstream: github.com/laz-rs/laz-rs-python/issues/40)
+    "staticmap",  # Apache-2.0 — github.com/komoot/staticmap (LICENSE.txt bundled, no metadata field; reported upstream: github.com/komoot/staticmap/issues/40)
+]

@@ -179,3 +179,5 @@ data/README.md
 etc/pygeoapi-openapi.yml
 
 works/management/commands/ne_50m_admin_0_countries.geojson
+
+licenses.json

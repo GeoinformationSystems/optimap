@@ -555,6 +555,51 @@ rather than committing an unheadered file.
 
 <!-- REUSE-IgnoreEnd -->
 
+### Dependency license checks
+
+OPTIMAP is GPL-3.0-or-later. A CI job (`licenses` in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs
+[`pip-licenses`](https://github.com/raimon49/pip-licenses) against every
+installed package (including transitive dependencies) and fails if any
+package has no detectable license metadata (`--fail-on="Unknown"`). This is
+separate from [License headers (REUSE)](#license-headers-reuse), which covers
+first-party file headers, not third-party dependency licenses.
+
+Known exceptions — packages whose PyPI metadata omits the license field but
+whose actual license has been manually verified — are listed in
+[`pyproject.toml`](pyproject.toml) under `[tool.license-check]`, each with a
+comment documenting the real license and where it was confirmed.
+
+**Workflow when CI fails on a new "Unknown" license:**
+
+1. Identify the package and version from the CI log (`pip-licenses --order=license --format=plain-vertical` output, also uploaded as the `license-report` artifact).
+2. Look up its actual license on its GitHub repo or PyPI project page.
+3. If the license is compatible with GPL-3.0-or-later (permissive: MIT/BSD/Apache; weak copyleft: LGPL/MPL; or GPL itself), add the package to `pyproject.toml`:
+
+   ```toml
+   [tool.license-check]
+   ignore-packages = [
+       "existing-package",  # ...
+       "new-package",  # <license> — <source URL>
+   ]
+   ```
+
+4. If the license is **not** compatible (e.g. proprietary, AGPL when not acceptable, or a license incompatible with GPL-3.0), do not add an exception: replace the dependency or consult the maintainers.
+5. Push the change; the `licenses` CI job will pass once the package is either ignored (step 3) or removed.
+
+**Useful commands** (the tool ships in [`requirements-dev.txt`](requirements-dev.txt)):
+
+```bash
+# Full license report for all installed packages, grouped by license
+pip-licenses --order=license --format=plain-vertical
+
+# Same check CI runs (fails with exit 1 if any package's license is undetected)
+pip-licenses --fail-on="Unknown" --ignore-packages lazrs staticmap
+
+# Machine-readable report (also produced as a CI artifact)
+pip-licenses --order=license --format=json --output-file=licenses.json
+```
+
 ### Issues during development
 
 - If you get a message during login that there is an issue with the CSRF token, e.g. `WARNING:django.security.csrf:Forbidden (CSRF token from POST incorrect.): /loginres/` in the log and also i nthe UI, then switch to using `localhost:8000` as the domain, not the localhost IP used in the examples in this README file.

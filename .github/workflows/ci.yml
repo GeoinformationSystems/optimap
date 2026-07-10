@@ -24,6 +24,43 @@ jobs:
     - name: Check lint
       run: ruff check .
 
+  licenses:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.11"
+    - name: Install GDAL from UbuntuGIS
+      run: |
+        sudo apt-get update
+        sudo add-apt-repository ppa:ubuntugis/ppa
+        sudo apt-get install -y -qq gdal-bin libgdal-dev
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install gdal=="$(gdal-config --version).*"
+        python -m pip install -r requirements.txt
+        python -m pip install pip-licenses
+    - name: Check dependency licenses
+      run: |
+        pip-licenses --order=license --format=plain-vertical
+        pip-licenses --order=license --format=json --output-file=licenses.json
+        IGNORE=$(python -c "
+        import tomllib
+        cfg = tomllib.load(open('pyproject.toml', 'rb'))
+        pkgs = cfg.get('tool', {}).get('license-check', {}).get('ignore-packages', [])
+        print(' '.join(pkgs))
+        ")
+        pip-licenses --fail-on="Unknown" --ignore-packages $IGNORE
+    - name: Upload license report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: license-report
+        path: licenses.json
+
   unittests:
     runs-on: ubuntu-24.04
 
