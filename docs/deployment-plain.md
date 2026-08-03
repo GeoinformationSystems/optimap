@@ -851,6 +851,58 @@ Certbot only contacts the ACME server when the certificate is within 30 days
 of expiry, so running the cron job twice daily is safe and is the standard
 recommendation.
 
+### Manual certificate renewal
+
+Trigger a renewal by hand when you need a new certificate before the automatic
+cron job would run it — for example after changing the domain, recovering from a
+failed renewal, or verifying the setup right after issuing the certificate. This
+uses the same command the cron job runs, so it respects the deploy hook and only
+contacts the ACME server when the cert is within 30 days of expiry.
+
+#### 1. (Optional) Force renewal outside the 30-day window
+
+By default certbot skips a certificate that is not yet near expiry. To renew
+regardless — e.g. to confirm the full path works end to end — add
+`--force-renewal`. Use it sparingly; unconditional renewals count against ACME
+rate limits.
+
+#### 2. Run the renewal
+
+```bash
+sudo certbot renew \
+    --config-dir /opt/optimap/certbot/conf \
+    --work-dir   /opt/optimap/certbot/work \
+    --logs-dir   /opt/optimap/certbot/logs
+```
+
+Add `--force-renewal` to the command above to renew even when the certificate is
+not yet within 30 days of expiry.
+
+The deploy hook (`renewal-hooks/deploy/reload-nginx.sh`) reloads nginx
+automatically after a successful renewal, so no separate reload step is needed.
+If you renewed but nginx is still serving the old certificate, reload it
+manually:
+
+```bash
+sudo systemctl reload nginx
+```
+
+#### 3. Verify the new certificate
+
+Check the expiry date on disk:
+
+```bash
+sudo openssl x509 -enddate -noout \
+    -in /opt/optimap/certbot/conf/live/optimap.geo.tu-dresden.de/fullchain.pem
+```
+
+Or confirm what nginx is actually serving:
+
+```bash
+echo | openssl s_client -connect optimap.geo.tu-dresden.de:443 -servername optimap.geo.tu-dresden.de 2>/dev/null \
+    | openssl x509 -noout -dates
+```
+
 ## Firewall configuration
 
 If using UFW:
